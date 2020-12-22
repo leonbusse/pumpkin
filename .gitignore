@@ -5,4 +5,5 @@
 *.iml
 *.ipr
 *.iws
-secrets.env
+*.env
+.env

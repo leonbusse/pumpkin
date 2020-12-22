@@ -1,9 +1,9 @@
 package de.leonbusse.pumpkin
 
 import io.ktor.client.*
+import io.ktor.client.features.*
 import io.ktor.client.request.*
 import io.ktor.http.*
-import io.ktor.util.*
 
 class SpotifyImporter(private val client: HttpClient, val accessToken: String) {
     companion object {
@@ -16,7 +16,13 @@ class SpotifyImporter(private val client: HttpClient, val accessToken: String) {
                 withAuthHeader()
             }
         println("user: $user")
-        val likedTracks = fetchTracks()
+        val likedTracks = try {
+            fetchTracks()
+        } catch (e: ClientRequestException) {
+            if(e.response.status == HttpStatusCode.Unauthorized) {
+                throw PumpkinApi.InvalidSpotifyAccessTokenException()
+            } else throw e
+        }
 
         return SpotifyLibrary(user, likedTracks)
     }
@@ -38,7 +44,6 @@ class SpotifyImporter(private val client: HttpClient, val accessToken: String) {
             responseSize = tracksResponse.items.size
             offset += tracksResponse.items.size
         }
-        println("tracks: $tracks")
         return tracks
     }
 

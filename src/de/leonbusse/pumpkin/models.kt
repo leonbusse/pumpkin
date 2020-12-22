@@ -1,5 +1,10 @@
 package de.leonbusse.pumpkin
 
+/** Pumpkin API */
+data class ExportRequest(
+    val spotifyAccessToken: String
+)
+
 /** Session models **/
 
 data class AuthSession(val state: String)
