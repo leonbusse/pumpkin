@@ -9,29 +9,30 @@ import io.ktor.client.features.json.*
 import io.ktor.client.request.*
 import io.ktor.client.request.forms.*
 import io.ktor.features.*
-import io.ktor.gson.*
+import io.ktor.features.ContentTransformationException
 import io.ktor.html.*
 import io.ktor.http.*
 import io.ktor.http.content.*
 import io.ktor.request.*
 import io.ktor.response.*
 import io.ktor.routing.*
+import io.ktor.serialization.*
 import io.ktor.sessions.*
 import io.ktor.util.*
 import kotlinx.html.a
 import kotlinx.html.body
 import kotlinx.html.h1
 import kotlinx.html.p
-import java.text.DateFormat
+import kotlinx.serialization.SerializationException
+import java.lang.IllegalArgumentException
 import java.util.*
 
 lateinit var dotenv: Dotenv
 
-fun main(args: Array<String>): Unit = io.ktor.server.netty.EngineMain.main(args)
-
-
 const val AuthSessionKey = "AuthSession"
 const val PumpkinSessionKey = "PumpkinSession"
+
+fun main(args: Array<String>): Unit = io.ktor.server.netty.EngineMain.main(args)
 
 private val client: HttpClient by lazy {
     HttpClient(CIO) {
@@ -61,11 +62,29 @@ fun Application.module(testing: Boolean = false) {
         header("X-Engine", "Ktor") // will send this header with each response
     }
 
-    install(ContentNegotiation) {
-        gson {
-            setDateFormat(DateFormat.LONG)
-            setPrettyPrinting()
+    install(StatusPages) {
+        exception<SerializationException> { cause ->
+            call.respond(HttpStatusCode.BadRequest)
+            throw cause
         }
+        exception<IllegalArgumentException> { cause ->
+            call.respond(HttpStatusCode.BadRequest)
+            throw cause
+        }
+        exception<IllegalStateException> { cause ->
+            call.respond(HttpStatusCode.InternalServerError)
+            throw cause
+        }
+        exception<Throwable> { cause ->
+            call.respond(HttpStatusCode.InternalServerError)
+            throw cause
+        }
+    }
+
+    install(ContentNegotiation) {
+        json(kotlinx.serialization.json.Json {
+            prettyPrint = true
+        })
     }
 
     install(Sessions) {
@@ -246,7 +265,7 @@ fun Application.module(testing: Boolean = false) {
                     } else {
                         val shareLink = try {
                             pumpkinApi.importLibrary(spotifyAccessToken)
-                        }catch(e: PumpkinApi.InvalidSpotifyAccessTokenException) {
+                        } catch (e: PumpkinApi.InvalidSpotifyAccessTokenException) {
                             println("error: invalid access token")
                             call.respond(
                                 HttpStatusCode.Unauthorized

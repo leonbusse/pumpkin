@@ -1,6 +1,9 @@
 package de.leonbusse.pumpkin
 
+import kotlinx.serialization.Serializable
+
 /** Pumpkin API */
+@Serializable
 data class ExportRequest(
     val spotifyAccessToken: String
 )
