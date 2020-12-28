@@ -3,9 +3,9 @@ package de.leonbusse.pumpkin
 import io.ktor.client.*
 import java.lang.IllegalArgumentException
 
-class PumpkinApi(private val client: HttpClient) {
+class PumpkinApi(private val client: HttpClient, private val basicAuthToken: String) {
 
-    class InvalidSpotifyAccessTokenException(msg: String? = null): Exception(msg)
+    class InvalidSpotifyAccessTokenException(msg: String? = null) : Exception(msg)
 
     private object DB {
         private val libraries = mutableMapOf<String, SpotifyLibrary>()
@@ -19,14 +19,21 @@ class PumpkinApi(private val client: HttpClient) {
         }
     }
 
-    suspend fun importLibrary(spotifyAccessToken: String): String {
+    private val spotifyApi = SpotifyApi(client, basicAuthToken)
+
+    data class ImportLibraryResult(
+        val shareLink: String,
+        val spotifyAccessToken: String
+    )
+
+    suspend fun importLibrary(spotifyAccessToken: String, spotifyRefreshToken: String?): ImportLibraryResult {
         if (spotifyAccessToken.isBlank()) {
             throw IllegalArgumentException("invalid Spotify access token")
         } else {
-            val spotifyLibrary = SpotifyImporter(client, spotifyAccessToken).import()
+            val (spotifyLibrary, accessToken) = spotifyApi.import(spotifyAccessToken, spotifyRefreshToken)
             DB.saveSpotifyLibrary(spotifyLibrary)
 
-            return generateShareLink(spotifyLibrary)
+            return ImportLibraryResult(generateShareLink(spotifyLibrary), accessToken)
         }
     }
 

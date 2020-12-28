@@ -5,11 +5,12 @@ import io.github.cdimascio.dotenv.dotenv
 import io.ktor.application.*
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
+import io.ktor.client.features.*
 import io.ktor.client.features.json.*
+import io.ktor.client.features.logging.*
 import io.ktor.client.request.*
 import io.ktor.client.request.forms.*
 import io.ktor.features.*
-import io.ktor.features.ContentTransformationException
 import io.ktor.html.*
 import io.ktor.http.*
 import io.ktor.http.content.*
@@ -25,6 +26,7 @@ import kotlinx.html.h1
 import kotlinx.html.p
 import kotlinx.serialization.SerializationException
 import java.lang.IllegalArgumentException
+import java.lang.NullPointerException
 import java.util.*
 
 lateinit var dotenv: Dotenv
@@ -39,10 +41,14 @@ private val client: HttpClient by lazy {
         install(JsonFeature) {
             serializer = GsonSerializer()
         }
+        install(Logging) {
+            logger = Logger.DEFAULT
+            level = LogLevel.ALL
+        }
     }
 }
 
-private val pumpkinApi = PumpkinApi(client)
+fun String.splitPath() = this.split("/").filter(String::isNotBlank)
 
 @Suppress("unused") // Referenced in application.conf
 @kotlin.jvm.JvmOverloads
@@ -53,16 +59,36 @@ fun Application.module(testing: Boolean = false) {
         ignoreIfMissing = true
     }
 
+    val baseUrl = URLBuilder().takeFrom(dotenv["BASE_URL"]).build()
+    val spotifyRedirectUriPath = dotenv["SPOTIFY_REDIRECT_URI_PATH"]
+    val spotifyRedirectUri = URLBuilder().takeFrom(baseUrl).apply {
+        path(
+            *baseUrl.encodedPath.splitPath().toTypedArray(),
+            *spotifyRedirectUriPath.splitPath().toTypedArray()
+        )
+    }.buildString()
     val spotifyClientId = dotenv["SPOTIFY_CLIENT_ID"]
     val spotifyClientSecret = dotenv["SPOTIFY_CLIENT_SECRET"]
-    val spotifyRedirectUri = dotenv["SPOTIFY_REDIRECT_URI"]
     val spotifyScope = "user-read-private playlist-read-private user-read-email user-library-read"
+    val basicAuthToken = "Basic " + "$spotifyClientId:$spotifyClientSecret".base64()
+
+    println("base URL at $baseUrl")
+
+    val pumpkinApi = PumpkinApi(client, basicAuthToken)
 
     install(DefaultHeaders) {
         header("X-Engine", "Ktor") // will send this header with each response
     }
 
     install(StatusPages) {
+        exception<ClientRequestException> { cause ->
+            if (cause.response.status == HttpStatusCode.Unauthorized) {
+                call.respond(HttpStatusCode.Unauthorized)
+            } else {
+                call.respond(HttpStatusCode.InternalServerError)
+            }
+            throw cause
+        }
         exception<SerializationException> { cause ->
             call.respond(HttpStatusCode.BadRequest)
             throw cause
@@ -77,6 +103,10 @@ fun Application.module(testing: Boolean = false) {
         }
         exception<Throwable> { cause ->
             call.respond(HttpStatusCode.InternalServerError)
+            throw cause
+        }
+        exception<PumpkinApi.InvalidSpotifyAccessTokenException> { cause ->
+            call.respond(HttpStatusCode.Unauthorized)
             throw cause
         }
     }
@@ -96,7 +126,7 @@ fun Application.module(testing: Boolean = false) {
 
         get("/") {
             val accessToken = call.sessions.get<PumpkinSession>()?.spotifyAccessToken
-            if (accessToken.isNullOrEmpty()) {
+            if (accessToken.isNullOrBlank()) {
                 call.respondHtml {
                     body {
                         h1 { +"Pumpkin - Share your Spotify library with friends" }
@@ -114,13 +144,20 @@ fun Application.module(testing: Boolean = false) {
         }
 
         get("/get-link") {
-            val accessToken = call.sessions.get<PumpkinSession>()?.spotifyAccessToken
-            if (accessToken.isNullOrEmpty()) {
-                println("error: missing access token")
+            val session = call.sessions.get<PumpkinSession>()
+            if (session == null ||
+                session.spotifyAccessToken.isBlank() ||
+                session.spotifyRefreshToken.isBlank()
+            ) {
+                println("error: missing token")
                 call.respondRedirect("/error")
                 return@get
             }
-            val shareLink = pumpkinApi.importLibrary(accessToken)
+            val (shareLink, updatedSpotifyAccessToken) = pumpkinApi.importLibrary(
+                session.spotifyAccessToken,
+                session.spotifyRefreshToken
+            )
+            call.sessions.set(session.copy(spotifyAccessToken = updatedSpotifyAccessToken))
             call.respondHtml {
                 body {
                     h1 { +"Success" }
@@ -210,7 +247,6 @@ fun Application.module(testing: Boolean = false) {
                     return@get
                 } else {
                     call.sessions.clear<AuthSession>()
-                    val basicAuthValue = "$spotifyClientId:$spotifyClientSecret".base64()
 
                     val response: SpotifyTokenResponse? = try {
                         client.request {
@@ -228,7 +264,7 @@ fun Application.module(testing: Boolean = false) {
                                 path("api", "token")
                             }
                             headers {
-                                append("Authorization", "Basic $basicAuthValue")
+                                append("Authorization", basicAuthToken)
                             }
                         }
                     } catch (e: Exception) {
@@ -239,8 +275,8 @@ fun Application.module(testing: Boolean = false) {
 
                     val session = try {
                         PumpkinSession(response!!.access_token, response.refresh_token)
-                    } catch (e: Exception) {
-                        println("error: $e")
+                    } catch (e: NullPointerException) {
+                        println("error: missing Spotify access token")
                         call.respondRedirect("/error")
                         return@get
                     }
@@ -253,8 +289,8 @@ fun Application.module(testing: Boolean = false) {
         route("/api") {
             route("/v1") {
                 post("/export") {
-                    val request = call.receive<ExportRequest>()
-                    val spotifyAccessToken = request.spotifyAccessToken
+                    val response = call.receive<ExportRequest>()
+                    val spotifyAccessToken = response.spotifyAccessToken
                     if (spotifyAccessToken.isBlank()) {
                         println("error: missing access token")
                         call.respond(
@@ -263,15 +299,7 @@ fun Application.module(testing: Boolean = false) {
                         )
                         return@post
                     } else {
-                        val shareLink = try {
-                            pumpkinApi.importLibrary(spotifyAccessToken)
-                        } catch (e: PumpkinApi.InvalidSpotifyAccessTokenException) {
-                            println("error: invalid access token")
-                            call.respond(
-                                HttpStatusCode.Unauthorized
-                            )
-                            return@post
-                        }
+                        val shareLink = pumpkinApi.importLibrary(spotifyAccessToken, null)
                         call.respond(
                             HttpStatusCode.OK,
                             "{\"shareLink\":\"$shareLink\"}"
