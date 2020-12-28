@@ -48,8 +48,6 @@ private val client: HttpClient by lazy {
     }
 }
 
-fun String.splitPath() = this.split("/").filter(String::isNotBlank)
-
 @Suppress("unused") // Referenced in application.conf
 @kotlin.jvm.JvmOverloads
 fun Application.module(testing: Boolean = false) {
@@ -109,6 +107,34 @@ fun Application.module(testing: Boolean = false) {
             call.respond(HttpStatusCode.Unauthorized)
             throw cause
         }
+
+        status(
+            HttpStatusCode.NotFound,
+            HttpStatusCode.BadRequest,
+            HttpStatusCode.InternalServerError,
+            HttpStatusCode.Unauthorized
+        ) {
+            val acceptList = call.request.header(HttpHeaders.Accept)?.split(",")
+            println(acceptList)
+            println(ContentType.Text.Html.toString())
+            if (acceptList != null && ContentType.Text.Html.toString() in acceptList) {
+                call.respondHtml {
+                    body {
+                        h1 { +"Error ${it.value}" }
+                        p { +it.description }
+                    }
+                }
+            } else {
+                call.respond(
+                    mapOf(
+                        "error" to mapOf(
+                            "status" to it.value.toString(),
+                            "message" to it.description
+                        )
+                    )
+                )
+            }
+        }
     }
 
     install(ContentNegotiation) {
@@ -123,6 +149,14 @@ fun Application.module(testing: Boolean = false) {
     }
 
     routing {
+
+        get("/test-unauthorized") {
+            call.respond(HttpStatusCode.Unauthorized)
+        }
+
+        get("/test-unauthorized-exception") {
+            throw PumpkinApi.InvalidSpotifyAccessTokenException()
+        }
 
         get("/") {
             val accessToken = call.sessions.get<PumpkinSession>()?.spotifyAccessToken
@@ -149,9 +183,7 @@ fun Application.module(testing: Boolean = false) {
                 session.spotifyAccessToken.isBlank() ||
                 session.spotifyRefreshToken.isBlank()
             ) {
-                println("error: missing token")
-                call.respondRedirect("/error")
-                return@get
+                return@get call.respond(HttpStatusCode.Unauthorized)
             }
             val (shareLink, updatedSpotifyAccessToken) = pumpkinApi.importLibrary(
                 session.spotifyAccessToken,
@@ -175,14 +207,12 @@ fun Application.module(testing: Boolean = false) {
             val userId = call.parameters["userId"]
             if (userId.isNullOrEmpty()) {
                 println("error: invalid userId")
-                call.respondRedirect("/error")
-                return@get
+                return@get call.respond(HttpStatusCode.BadRequest)
             }
             val library = pumpkinApi.getLibrary(userId)
             if (library == null) {
                 println("error: could not find library for userId $userId")
-                call.respondRedirect("/error")
-                return@get
+                return@get call.respond(HttpStatusCode.BadRequest)
             }
             call.respondHtml {
                 body {
@@ -194,15 +224,6 @@ fun Application.module(testing: Boolean = false) {
                             }
                         }
                     }
-                }
-            }
-        }
-
-        get("/error") {
-            call.respondHtml {
-                body {
-                    h1 { +"Error" }
-                    p { +"Something went wrong. Please try again." }
                 }
             }
         }
@@ -243,12 +264,11 @@ fun Application.module(testing: Boolean = false) {
                     code.isNullOrEmpty()
                 ) {
                     println("error: auth state did not match")
-                    call.respondRedirect("/error")
-                    return@get
+                    return@get call.respond(HttpStatusCode.BadRequest)
                 } else {
                     call.sessions.clear<AuthSession>()
 
-                    val response: SpotifyTokenResponse? = try {
+                    val response: SpotifyTokenResponse? =
                         client.request {
                             method = HttpMethod.Post
                             body = FormDataContent(
@@ -267,18 +287,12 @@ fun Application.module(testing: Boolean = false) {
                                 append("Authorization", basicAuthToken)
                             }
                         }
-                    } catch (e: Exception) {
-                        println("error: $e")
-                        call.respondRedirect("/error")
-                        return@get
-                    }
 
                     val session = try {
                         PumpkinSession(response!!.access_token, response.refresh_token)
                     } catch (e: NullPointerException) {
                         println("error: missing Spotify access token")
-                        call.respondRedirect("/error")
-                        return@get
+                        return@get call.respond(HttpStatusCode.Unauthorized)
                     }
                     call.sessions.set(session)
                     call.respondRedirect("/")
@@ -293,11 +307,7 @@ fun Application.module(testing: Boolean = false) {
                     val spotifyAccessToken = response.spotifyAccessToken
                     if (spotifyAccessToken.isBlank()) {
                         println("error: missing access token")
-                        call.respond(
-                            HttpStatusCode.BadRequest,
-                            "{\"error\":\"missing access token\"}"
-                        )
-                        return@post
+                        return@post call.respond(HttpStatusCode.Unauthorized)
                     } else {
                         val shareLink = pumpkinApi.importLibrary(spotifyAccessToken, null)
                         call.respond(
@@ -311,11 +321,7 @@ fun Application.module(testing: Boolean = false) {
                     val userId = call.parameters["userId"]
                     if (userId.isNullOrEmpty()) {
                         println("error: invalid userId")
-                        call.respond(
-                            HttpStatusCode.BadRequest,
-                            "{\"error\":\"invalid userId\"}"
-                        )
-                        return@get
+                        return@get call.respond(HttpStatusCode.BadRequest)
                     }
                     val library = pumpkinApi.getLibrary(userId)
                     if (library == null) {
