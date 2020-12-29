@@ -10,7 +10,7 @@ data class ExportRequest(
 
 /** Session models **/
 
-data class AuthSession(val state: String)
+data class AuthSession(val state: String, val redirect: String?)
 
 data class PumpkinSession(
     val spotifyAccessToken: String,

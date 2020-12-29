@@ -211,7 +211,17 @@ fun Application.module(testing: Boolean = false) {
 
             // validate authentication
             val session = call.sessions.get<PumpkinSession>()
-                ?: return@get call.respondRedirect("/spotify/login") // TODO: redirect after login
+//                ?: return@get call.respondRedirect("/spotify/login")
+                ?: run {
+                    val relativeRedirectUrl = url {
+                        protocol = URLProtocol.HTTPS
+                        host = "splitmark"
+                        path("spotify", "login")
+                        parameters.append("redirect", "/share/$userId")
+                    }.split("splitmark")[1]
+                    println("redirect: $relativeRedirectUrl")
+                    return@get call.respondRedirect(relativeRedirectUrl)
+                }
 
             // update session
             val updatedSession = session.copy(userId = userId)
@@ -328,8 +338,10 @@ fun Application.module(testing: Boolean = false) {
         route("/spotify") {
 
             get("/login") {
+                val redirect = call.parameters["redirect"]
+                println("parsed redirect: $redirect")
                 val state = generateRandomString(16)
-                call.sessions.set(AuthSession(state = state))
+                call.sessions.set(AuthSession(state = state, redirect = redirect))
 
                 val url = url {
                     protocol = URLProtocol.HTTPS
@@ -348,6 +360,7 @@ fun Application.module(testing: Boolean = false) {
 
             get("/callback") {
                 val state = call.sessions.get<AuthSession>()?.state
+                val redirectUrl = call.sessions.get<AuthSession>()?.redirect
                 val code = call.parameters["code"]
 
                 if (call.parameters["state"] == null ||
@@ -386,7 +399,7 @@ fun Application.module(testing: Boolean = false) {
                         return@get call.respond(HttpStatusCode.Unauthorized)
                     }
                     call.sessions.set(session)
-                    call.respondRedirect("/")
+                    call.respondRedirect(redirectUrl ?: "/")
                 }
             }
         }
