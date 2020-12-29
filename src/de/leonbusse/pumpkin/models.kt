@@ -14,7 +14,8 @@ data class AuthSession(val state: String)
 
 data class PumpkinSession(
     val spotifyAccessToken: String,
-    val spotifyRefreshToken: String
+    val spotifyRefreshToken: String,
+    val userId: String?
 )
 
 

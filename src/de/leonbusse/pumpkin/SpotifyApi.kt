@@ -8,7 +8,7 @@ import io.ktor.http.*
 
 class SpotifyApi(
     private val client: HttpClient,
-    private val basicAuthToken: String
+    private val basicAuthToken: String?
 ) {
     companion object {
         const val spotifyTracksMaxLimit = 50
@@ -35,6 +35,45 @@ class SpotifyApi(
         val likedTracks = fetchTracks(session)
 
         return SpotifyLibrary(user, likedTracks) to session.accessToken
+    }
+
+    suspend fun createPlaylist(
+        userId: String,
+        trackIds: List<String>,
+        playlistName: String,
+        accessToken: String,
+        refreshToken: String?
+    ): Pair<SpotifyPlaylist, String> {
+        val session = SpotifySession(accessToken, refreshToken)
+        val playlist: SpotifyPlaylist =
+            client.spotifyRequest(session) {
+                method = HttpMethod.Post
+                url {
+                    protocol = URLProtocol.HTTPS
+                    host = "api.spotify.com"
+                    path("v1", "users", userId, "playlists")
+                }
+                header(HttpHeaders.ContentType, ContentType.Application.Json)
+                body = mapOf(
+                    "name" to playlistName,
+                    "public" to false
+                )
+            }
+        val addTracksResponse: String =
+            client.spotifyRequest(session) {
+                method = HttpMethod.Post
+                url {
+                    protocol = URLProtocol.HTTPS
+                    host = "api.spotify.com"
+                    path("v1", "playlists", playlist.id, "tracks")
+                }
+                header(HttpHeaders.ContentType, ContentType.Application.Json)
+                body = mapOf(
+                    "uris" to trackIds.map { "spotify:track:$it" },
+                    "position" to 0
+                )
+            }
+        return playlist to session.accessToken
     }
 
     private suspend fun fetchTracks(session: SpotifySession): List<SpotifyTrack> {
@@ -88,6 +127,9 @@ class SpotifyApi(
         println("refreshing access token...")
         return if (session.refreshToken == null) {
             println("can't refresh access token without refresh token")
+            false
+        } else if (basicAuthToken == null) {
+            println("can't refresh access token basic authentication credentials")
             false
         } else {
             try {
