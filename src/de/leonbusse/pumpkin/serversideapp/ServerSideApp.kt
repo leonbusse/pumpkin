@@ -1,5 +1,6 @@
-package de.leonbusse.pumpkin
+package de.leonbusse.pumpkin.serversideapp
 
+import de.leonbusse.pumpkin.*
 import io.ktor.application.*
 import io.ktor.client.*
 import io.ktor.client.request.*
@@ -20,7 +21,7 @@ import kotlinx.html.*
 const val AuthSessionKey = "AuthSession"
 const val PumpkinSessionKey = "PumpkinSession"
 
-class ServerSideWebApp(configuration: Configuration) {
+class ServerSideApp(configuration: Configuration) {
     private val pumpkinApi = configuration.pumpkinApi
     private val client = configuration.client
 
@@ -42,12 +43,12 @@ class ServerSideWebApp(configuration: Configuration) {
     }
 
     companion object Feature :
-        ApplicationFeature<ApplicationCallPipeline, Configuration, ServerSideWebApp> {
-        override val key = AttributeKey<ServerSideWebApp>("ServerSideWebApp")
+        ApplicationFeature<ApplicationCallPipeline, Configuration, ServerSideApp> {
+        override val key = AttributeKey<ServerSideApp>("ServerSideApp")
 
-        override fun install(pipeline: ApplicationCallPipeline, configure: Configuration.() -> Unit): ServerSideWebApp {
+        override fun install(pipeline: ApplicationCallPipeline, configure: Configuration.() -> Unit): ServerSideApp {
             val configuration = Configuration().apply(configure)
-            val feature = ServerSideWebApp(configuration)
+            val feature = ServerSideApp(configuration)
             return feature
         }
     }
@@ -58,6 +59,12 @@ class ServerSideWebApp(configuration: Configuration) {
     }
 
     fun install(statusPages: StatusPages.Configuration) = statusPages.apply {
+
+        exception<MissingSpotifyTokenException> { cause ->
+            call.respond(HttpStatusCode.Unauthorized)
+            throw cause
+        }
+
         composeExceptionHandler<MissingSpotifyTokenException>({ call.request.accepts(ContentType.Text.Html) })
         { cause -> call.respondRedirect(cause.redirect) }
 
@@ -74,7 +81,8 @@ class ServerSideWebApp(configuration: Configuration) {
             HttpStatusCode.NotFound,
             HttpStatusCode.BadRequest,
             HttpStatusCode.InternalServerError,
-            HttpStatusCode.Unauthorized
+            HttpStatusCode.Unauthorized,
+            HttpStatusCode.Forbidden
         ).forEach {
             composeStatusHandler(it, { call.request.accepts(ContentType.Text.Html) })
             { code -> this.renderErrorPage(code) }
@@ -87,8 +95,12 @@ class ServerSideWebApp(configuration: Configuration) {
             call.respond(HttpStatusCode.Unauthorized)
         }
 
-        get("/test-unauthorized-exception") {
-            throw PumpkinApi.InvalidSpotifyAccessTokenException()
+        get("/test-authentication-exception") {
+            throw AuthenticationException()
+        }
+
+        get("/test-authorization-exception") {
+            throw AuthorizationException()
         }
 
         get("/clear-cookies") {
@@ -154,19 +166,18 @@ class ServerSideWebApp(configuration: Configuration) {
             val updatedSession = session.copy(userId = userId)
             call.sessions.set(updatedSession)
 
-            val library = pumpkinApi.getLibrary(userId)
-            if (library == null) {
-                println("error: could not find library for userId $userId")
-                return@get call.respond(HttpStatusCode.NotFound)
-            }
+            val user = pumpkinApi.getUser(userId)
+                ?: throw NotFoundException()
+            val tracks = pumpkinApi.getTracks(userId)
+                ?: throw NotFoundException()
             call.respondHtml {
-                head { title { +"Pumpkin | ${library.user.display_name}'s library" } }
+                head { title { +"Pumpkin | ${user.display_name}'s library" } }
                 body {
-                    h1 { +"This is ${library.user.display_name}'s library" }
+                    h1 { +"This is ${user.display_name}'s library" }
                     form(action = "${baseUrl}create-playlist", method = FormMethod.post) {
                         input(InputType.hidden) {
                             name = "libraryUserId"
-                            value = library.user.id
+                            value = user.id
                         }
                         table {
                             thead {
@@ -176,7 +187,7 @@ class ServerSideWebApp(configuration: Configuration) {
                                 }
                             }
                             tbody {
-                                library.tracks.take(10).forEach { track ->
+                                tracks.take(10).forEach { track ->
                                     tr {
                                         td {
                                             input(InputType.checkBox) {
@@ -228,7 +239,7 @@ class ServerSideWebApp(configuration: Configuration) {
 
             val session = requirePumpkinSession()
             if (session.userId == null || playlistName == null || libraryUserId == null) {
-                throw IllegalArgumentException()
+                throw BadRequestException("Missing parameter")
             }
 
             // like tracks
@@ -332,9 +343,9 @@ class ServerSideWebApp(configuration: Configuration) {
     }
 }
 
-fun Routing.install(app: ServerSideWebApp) = app.install(this)
-fun StatusPages.Configuration.install(app: ServerSideWebApp) = app.install(this)
-fun Sessions.Configuration.install(app: ServerSideWebApp) = app.install(this)
+fun Routing.install(app: ServerSideApp) = app.install(this)
+fun StatusPages.Configuration.install(app: ServerSideApp) = app.install(this)
+fun Sessions.Configuration.install(app: ServerSideApp) = app.install(this)
 
 
 fun Route.requirePumpkinSession() {

@@ -1,5 +1,7 @@
 package de.leonbusse.pumpkin
 
+import de.leonbusse.pumpkin.serversideapp.ServerSideApp
+import de.leonbusse.pumpkin.serversideapp.install
 import io.github.cdimascio.dotenv.Dotenv
 import io.github.cdimascio.dotenv.dotenv
 import io.ktor.application.*
@@ -8,29 +10,21 @@ import io.ktor.client.engine.cio.*
 import io.ktor.client.features.*
 import io.ktor.client.features.json.*
 import io.ktor.client.features.logging.*
-import io.ktor.client.request.*
-import io.ktor.client.request.forms.*
 import io.ktor.features.*
-import io.ktor.html.*
+import io.ktor.features.ContentTransformationException
 import io.ktor.http.*
-import io.ktor.http.content.*
 import io.ktor.request.*
 import io.ktor.response.*
 import io.ktor.routing.*
 import io.ktor.serialization.*
 import io.ktor.sessions.*
-import io.ktor.util.*
-import io.ktor.util.pipeline.*
-import kotlinx.html.*
-import kotlinx.serialization.SerializationException
-import java.util.*
 
 lateinit var dotenv: Dotenv
 
 fun main(args: Array<String>): Unit = io.ktor.server.netty.EngineMain.main(args)
 
 
-@Suppress("unused") // Referenced in application.conf
+@Suppress("unused")
 @kotlin.jvm.JvmOverloads
 fun Application.module(testing: Boolean = false) {
 
@@ -69,7 +63,7 @@ fun Application.module(testing: Boolean = false) {
 
     val pumpkinApi = PumpkinApi(client, basicAuthToken)
 
-    val serverSideWebApp = install(ServerSideWebApp) {
+    val serverSideApp = install(ServerSideApp) {
         this.pumpkinApi = pumpkinApi
         this.client = client
         this.basicAuthToken = basicAuthToken
@@ -92,36 +86,26 @@ fun Application.module(testing: Boolean = false) {
             }
             throw cause
         }
-        exception<SerializationException> { cause ->
+        exception<ContentTransformationException> { cause ->
             call.respond(HttpStatusCode.BadRequest)
             throw cause
         }
-        exception<IllegalArgumentException> { cause ->
-            call.respond(HttpStatusCode.BadRequest)
-            throw cause
-        }
-        exception<IllegalStateException> { cause ->
-            call.respond(HttpStatusCode.InternalServerError)
-            throw cause
-        }
-        exception<Throwable> { cause ->
-            call.respond(HttpStatusCode.InternalServerError)
-            throw cause
-        }
-        exception<PumpkinApi.InvalidSpotifyAccessTokenException> { cause ->
+        exception<AuthenticationException> {
             call.respond(HttpStatusCode.Unauthorized)
-            throw cause
         }
-        exception<MissingSpotifyTokenException> { cause ->
-            call.respond(HttpStatusCode.Unauthorized)
-            throw cause
+        exception<AuthorizationException> {
+            call.respond(HttpStatusCode.Forbidden)
+        }
+        exception<ConflictException> {
+            call.respond(HttpStatusCode.Conflict)
         }
 
         status(
             HttpStatusCode.NotFound,
             HttpStatusCode.BadRequest,
             HttpStatusCode.InternalServerError,
-            HttpStatusCode.Unauthorized
+            HttpStatusCode.Unauthorized,
+            HttpStatusCode.Conflict
         ) {
             call.respond(
                 mapOf(
@@ -133,7 +117,7 @@ fun Application.module(testing: Boolean = false) {
             )
         }
 
-        install(serverSideWebApp)
+        install(serverSideApp)
     }
 
     install(ContentNegotiation) {
@@ -143,44 +127,52 @@ fun Application.module(testing: Boolean = false) {
     }
 
     install(Sessions) {
-        install(serverSideWebApp)
+        install(serverSideApp)
     }
 
     routing {
 
         route("/api") {
             route("/v1") {
-                post("/export") {
-                    val request = call.receive<ExportRequest>()
+
+                post("/import") {
+                    val request = call.receive<ImportRequest>()
                     val spotifyAccessToken = request.spotifyAccessToken
-                    if (spotifyAccessToken.isBlank()) {
-                        println("error: missing access token")
-                        return@post call.respond(HttpStatusCode.Unauthorized)
-                    } else {
-                        val shareLink = pumpkinApi.importLibrary(spotifyAccessToken, null)
-                        call.respond(
-                            HttpStatusCode.OK,
-                            "{\"shareLink\":\"$shareLink\"}"
-                        )
-                    }
+                    val (shareLink, _) = pumpkinApi.importLibrary(spotifyAccessToken, null)
+                    call.respond(ImportResponse(shareLink))
                 }
 
-                get("/library/{userId}") {
+                get("/tracks/{userId}") {
                     val userId = call.parameters["userId"]
-                    if (userId.isNullOrEmpty()) {
-                        println("error: invalid userId")
-                        return@get call.respond(HttpStatusCode.BadRequest)
-                    }
-                    val library = pumpkinApi.getLibrary(userId)
-                    if (library == null) {
-                        call.respond(HttpStatusCode.NotFound)
-                    } else {
-                        call.respond(HttpStatusCode.OK, library)
-                    }
+                        ?: throw BadRequestException("missing path parameter userId")
+                    val limit = call.request.queryParameters["limit"]?.toIntOrNull()
+                    val offset = call.request.queryParameters["offset"]?.toIntOrNull()
+
+                    val tracks = pumpkinApi.getTracks(userId, limit = limit, offset = offset)
+                        ?: throw NotFoundException()
+                    println("tracks: $tracks")
+                    call.respond(HttpStatusCode.OK, tracks)
+                }
+
+                post("/like") {
+                    val request = call.receive<LikeTracksRequest>()
+                    pumpkinApi.like(request.trackIds, request.userId, request.libraryUserId)
+                    call.respond(HttpStatusCode.OK)
+                }
+
+                post("/create-playlist") {
+                    val request = call.receive<CreatePlaylistRequest>()
+                    val (playlist, _) = pumpkinApi.export(
+                        request.userId,
+                        request.playlistName,
+                        request.spotifyAccessToken,
+                        null
+                    )
+                    call.respond(CreatePlaylistResponse(playlist))
                 }
             }
         }
 
-        install(serverSideWebApp)
+        install(serverSideApp)
     }
 }

@@ -1,6 +1,7 @@
 package de.leonbusse.pumpkin
 
 import io.ktor.client.*
+import io.ktor.features.*
 
 class PumpkinApi(private val client: HttpClient, private val basicAuthToken: String) {
 
@@ -53,7 +54,7 @@ class PumpkinApi(private val client: HttpClient, private val basicAuthToken: Str
 
     suspend fun importLibrary(spotifyAccessToken: String, spotifyRefreshToken: String?): ImportLibraryResult {
         if (spotifyAccessToken.isBlank()) {
-            throw IllegalArgumentException("invalid Spotify access token")
+            throw BadRequestException("invalid Spotify access token")
         } else {
             val (spotifyLibrary, accessToken) = spotifyApi.import(spotifyAccessToken, spotifyRefreshToken)
             DB.saveSpotifyLibrary(spotifyLibrary)
@@ -62,9 +63,16 @@ class PumpkinApi(private val client: HttpClient, private val basicAuthToken: Str
         }
     }
 
-    fun getLibrary(userId: String) = DB.loadLibrary(userId)
+    fun getUser(userId: String): SpotifyUser? = DB.loadLibrary(userId)?.user
+
+    fun getTracks(userId: String, limit: Int? = null, offset: Int? = null): List<SpotifyTrack>? {
+        val o = offset ?: 0
+        val l = limit ?: 10
+        return DB.loadLibrary(userId)?.tracks?.subList(o, o + l)
+    }
 
     suspend fun like(trackIds: List<String>, userId: String, libraryUserId: String) {
+        // TODO: validate that liked song is available
         DB.saveLikes(trackIds, userId, libraryUserId)
     }
 
@@ -80,6 +88,9 @@ class PumpkinApi(private val client: HttpClient, private val basicAuthToken: Str
         refreshToken: String?
     ): ExportResult {
         val trackIds = DB.getLikes(userId).map { it.id }
+        // don't create playlist without tracks
+        if (trackIds.isEmpty()) throw ConflictException()
+
         val (playlist, spotifyAccessToken) =
             spotifyApi.createPlaylist(
                 userId,
