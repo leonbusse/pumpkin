@@ -20,6 +20,7 @@ import io.ktor.routing.*
 import io.ktor.serialization.*
 import io.ktor.sessions.*
 import io.ktor.util.*
+import io.ktor.util.pipeline.*
 import kotlinx.html.*
 import kotlinx.serialization.SerializationException
 import java.util.*
@@ -144,6 +145,34 @@ fun Application.module(testing: Boolean = false) {
 
     routing {
 
+        intercept(ApplicationCallPipeline.Features) {
+            val path = (this.context as RoutingApplicationCall).route.path
+            println("intercept $path")
+            // whitelist routes without authentication
+            when (path) {
+                "/",
+                "/spotify/login",
+                "/spotify/callback" -> {
+                    println("- whitelisted, proceed")
+                    return@intercept proceed()
+                }
+            }
+
+            val session = call.sessions.get<PumpkinSession>()
+            if (session == null) {
+                val redirectUrl = call.url {
+                    path("spotify", "login")
+                    parameters.append("redirect", call.url())
+                }
+                println("- no session, redirecting to $redirectUrl")
+                call.respondRedirect(redirectUrl)
+                return@intercept finish()
+            } else {
+                println("- has session, proceed")
+                return@intercept proceed()
+            }
+        }
+
         get("/test-unauthorized") {
             call.respond(HttpStatusCode.Unauthorized)
         }
@@ -176,12 +205,8 @@ fun Application.module(testing: Boolean = false) {
 
         get("/get-link") {
             val session = call.sessions.get<PumpkinSession>()
-            if (session == null ||
-                session.spotifyAccessToken.isBlank() ||
-                session.spotifyRefreshToken.isBlank()
-            ) {
-                return@get call.respond(HttpStatusCode.Unauthorized)
-            }
+                ?: return@get call.respond(HttpStatusCode.Unauthorized)
+
             val (shareLink, updatedSpotifyAccessToken) = pumpkinApi.importLibrary(
                 session.spotifyAccessToken,
                 session.spotifyRefreshToken
@@ -209,21 +234,8 @@ fun Application.module(testing: Boolean = false) {
                 return@get call.respond(HttpStatusCode.BadRequest)
             }
 
-            // validate authentication
-            val session = call.sessions.get<PumpkinSession>()
-//                ?: return@get call.respondRedirect("/spotify/login")
-                ?: run {
-                    val relativeRedirectUrl = url {
-                        protocol = URLProtocol.HTTPS
-                        host = "splitmark"
-                        path("spotify", "login")
-                        parameters.append("redirect", "/share/$userId")
-                    }.split("splitmark")[1]
-                    println("redirect: $relativeRedirectUrl")
-                    return@get call.respondRedirect(relativeRedirectUrl)
-                }
-
             // update session
+            val session = call.sessions.get<PumpkinSession>()!!
             val updatedSession = session.copy(userId = userId)
             call.sessions.set(updatedSession)
 
