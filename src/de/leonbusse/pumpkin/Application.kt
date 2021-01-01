@@ -77,6 +77,27 @@ fun Application.module(testing: Boolean = false) {
         header("X-Engine", "Ktor")
     }
 
+    install(CORS) {
+        anyHost()
+        HttpMethod.DefaultMethods.forEach { method(it) }
+        listOf(
+            HttpHeaders.Accept,
+            HttpHeaders.AcceptEncoding,
+            HttpHeaders.AcceptLanguage,
+            HttpHeaders.CacheControl,
+            HttpHeaders.Connection,
+            HttpHeaders.ContentLength,
+            HttpHeaders.ContentType,
+            HttpHeaders.Host,
+            HttpHeaders.Origin,
+            HttpHeaders.Pragma,
+            HttpHeaders.Referrer,
+            HttpHeaders.UserAgent
+        ).forEach { exposeHeader(it) }
+        allowCredentials = true
+        allowNonSimpleContentTypes = true
+    }
+
     install(StatusPages) {
         exception<ClientRequestException> { cause ->
             if (cause.response.status == HttpStatusCode.Unauthorized) {
@@ -135,6 +156,10 @@ fun Application.module(testing: Boolean = false) {
         route("/api") {
             route("/v1") {
 
+                get("ping") {
+                    call.respond("ACK ping")
+                }
+
                 post("/import") {
                     val request = call.receive<ImportRequest>()
                     val spotifyAccessToken = request.spotifyAccessToken
@@ -154,7 +179,7 @@ fun Application.module(testing: Boolean = false) {
                     call.respond(HttpStatusCode.OK, tracks)
                 }
 
-                post("/like") {
+                put("/like") {
                     val request = call.receive<LikeTracksRequest>()
                     pumpkinApi.like(request.trackIds, request.userId, request.libraryUserId)
                     call.respond(HttpStatusCode.OK)

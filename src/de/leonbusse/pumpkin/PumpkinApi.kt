@@ -72,8 +72,11 @@ class PumpkinApi(private val client: HttpClient, private val basicAuthToken: Str
     }
 
     suspend fun like(trackIds: List<String>, userId: String, libraryUserId: String) {
-        // TODO: validate that liked song is available
-        DB.saveLikes(trackIds, userId, libraryUserId)
+        val alreadyLiked = DB.getLikes(userId)
+            .map { it.id }
+            .filter { it in trackIds }
+        val newLikes = trackIds.filterNot { it in alreadyLiked }
+        DB.saveLikes(newLikes, userId, libraryUserId)
     }
 
     data class ExportResult(
