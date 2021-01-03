@@ -34,6 +34,7 @@ fun Application.module(testing: Boolean = false) {
     }
 
     val baseUrl = URLBuilder().takeFrom(dotenv["BASE_URL"]).build()
+//    val shareBaseUrl = URLBuilder().takeFrom(dotenv["SHARE_BASE_URL"]).build()
     val spotifyRedirectUriPath = dotenv["SPOTIFY_REDIRECT_URI_PATH"]
     val spotifyRedirectUri = URLBuilder().takeFrom(baseUrl).apply {
         path(
@@ -111,14 +112,17 @@ fun Application.module(testing: Boolean = false) {
             call.respond(HttpStatusCode.BadRequest)
             throw cause
         }
-        exception<AuthenticationException> {
+        exception<AuthenticationException> {cause ->
             call.respond(HttpStatusCode.Unauthorized)
+            throw cause
         }
-        exception<AuthorizationException> {
+        exception<AuthorizationException> {cause ->
             call.respond(HttpStatusCode.Forbidden)
+            throw cause
         }
-        exception<ConflictException> {
+        exception<ConflictException> {cause ->
             call.respond(HttpStatusCode.Conflict)
+            throw cause
         }
 
         status(
@@ -163,8 +167,8 @@ fun Application.module(testing: Boolean = false) {
                 post("/import") {
                     val request = call.receive<ImportRequest>()
                     val spotifyAccessToken = request.spotifyAccessToken
-                    val (shareLink, _) = pumpkinApi.importLibrary(spotifyAccessToken, null)
-                    call.respond(ImportResponse(shareLink))
+                    val (shareId, _) = pumpkinApi.importLibrary(spotifyAccessToken, null)
+                    call.respond(ImportResponse(shareId))
                 }
 
                 get("/tracks/{userId}") {
@@ -179,13 +183,31 @@ fun Application.module(testing: Boolean = false) {
                     call.respond(HttpStatusCode.OK, tracks)
                 }
 
+                get("/user/{userId}") {
+                    val userId = call.parameters["userId"]
+                        ?: throw BadRequestException("missing path parameter userId")
+
+                    val user = pumpkinApi.getUser(userId)
+                        ?: throw NotFoundException()
+                    call.respond(HttpStatusCode.OK, user)
+                }
+
                 put("/like") {
+                    println("/like put")
+                    val request = call.receive<LikeTracksRequest>()
+                    pumpkinApi.like(request.trackIds, request.userId, request.libraryUserId)
+                    call.respond(HttpStatusCode.OK)
+                }
+
+                post("/like") {
+                    println("/like post")
                     val request = call.receive<LikeTracksRequest>()
                     pumpkinApi.like(request.trackIds, request.userId, request.libraryUserId)
                     call.respond(HttpStatusCode.OK)
                 }
 
                 post("/create-playlist") {
+                    println("/create-playlist")
                     val request = call.receive<CreatePlaylistRequest>()
                     val (playlist, _) = pumpkinApi.export(
                         request.userId,

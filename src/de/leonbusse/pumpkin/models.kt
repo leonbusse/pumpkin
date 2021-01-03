@@ -11,7 +11,7 @@ data class ImportRequest(
 
 @Serializable
 data class ImportResponse(
-    val shareLink: String
+    val shareId: String
 )
 
 @Serializable

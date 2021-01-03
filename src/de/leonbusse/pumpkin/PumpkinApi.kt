@@ -2,8 +2,12 @@ package de.leonbusse.pumpkin
 
 import io.ktor.client.*
 import io.ktor.features.*
+import java.lang.Integer.min
 
-class PumpkinApi(private val client: HttpClient, private val basicAuthToken: String) {
+class PumpkinApi(
+    client: HttpClient,
+    basicAuthToken: String,
+) {
 
     class InvalidSpotifyAccessTokenException(msg: String? = null) : Exception(msg)
 
@@ -48,7 +52,7 @@ class PumpkinApi(private val client: HttpClient, private val basicAuthToken: Str
     private val spotifyApi = SpotifyApi(client, basicAuthToken)
 
     data class ImportLibraryResult(
-        val shareLink: String,
+        val shareId: String,
         val spotifyAccessToken: String
     )
 
@@ -59,7 +63,7 @@ class PumpkinApi(private val client: HttpClient, private val basicAuthToken: Str
             val (spotifyLibrary, accessToken) = spotifyApi.import(spotifyAccessToken, spotifyRefreshToken)
             DB.saveSpotifyLibrary(spotifyLibrary)
 
-            return ImportLibraryResult(generateShareLink(spotifyLibrary), accessToken)
+            return ImportLibraryResult(generateShareId(spotifyLibrary), accessToken)
         }
     }
 
@@ -68,15 +72,22 @@ class PumpkinApi(private val client: HttpClient, private val basicAuthToken: Str
     fun getTracks(userId: String, limit: Int? = null, offset: Int? = null): List<SpotifyTrack>? {
         val o = offset ?: 0
         val l = limit ?: 10
-        return DB.loadLibrary(userId)?.tracks?.subList(o, o + l)
+        val tracks = DB.loadLibrary(userId)?.tracks
+            ?: throw NotFoundException("no tracks for user $userId are available")
+        if (o >= tracks.size) {
+            return listOf()
+        }
+        return tracks.slice(o until min(tracks.size, o + l))
     }
 
     suspend fun like(trackIds: List<String>, userId: String, libraryUserId: String) {
+        println("api.like")
         val alreadyLiked = DB.getLikes(userId)
             .map { it.id }
             .filter { it in trackIds }
         val newLikes = trackIds.filterNot { it in alreadyLiked }
         DB.saveLikes(newLikes, userId, libraryUserId)
+        println("added likes: $newLikes")
     }
 
     data class ExportResult(
@@ -105,6 +116,7 @@ class PumpkinApi(private val client: HttpClient, private val basicAuthToken: Str
         DB.clearLikes(userId)
         return ExportResult(playlist, spotifyAccessToken)
     }
-}
 
-fun generateShareLink(library: SpotifyLibrary): String = "http://localhost:8080/share/${library.user.id}"
+    private fun generateShareId(library: SpotifyLibrary): String =
+        library.user.id
+}
