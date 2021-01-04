@@ -33,13 +33,15 @@ fun Application.module(testing: Boolean = false) {
         ignoreIfMissing = true
     }
 
+    println("init pumpkin...")
+    println("BASE_URL: ${dotenv["BASE_URL"]}")
+    println("SPOTIFY_CLIENT_ID: ${dotenv["SPOTIFY_CLIENT_ID"]}")
+
     val baseUrl = URLBuilder().takeFrom(dotenv["BASE_URL"]).build()
-//    val shareBaseUrl = URLBuilder().takeFrom(dotenv["SHARE_BASE_URL"]).build()
-    val spotifyRedirectUriPath = dotenv["SPOTIFY_REDIRECT_URI_PATH"]
     val spotifyRedirectUri = URLBuilder().takeFrom(baseUrl).apply {
         path(
             *baseUrl.encodedPath.splitPath().toTypedArray(),
-            *spotifyRedirectUriPath.splitPath().toTypedArray()
+            "spotify", "callback"
         )
     }.buildString()
     val spotifyClientId = dotenv["SPOTIFY_CLIENT_ID"]
@@ -47,8 +49,6 @@ fun Application.module(testing: Boolean = false) {
     val spotifyScope =
         "user-read-private playlist-read-private user-read-email user-library-read playlist-modify-private"
     val basicAuthToken = "Basic " + "$spotifyClientId:$spotifyClientSecret".base64()
-
-    println("base URL at $baseUrl")
 
     val client: HttpClient by lazy {
         HttpClient(CIO) {
@@ -112,15 +112,15 @@ fun Application.module(testing: Boolean = false) {
             call.respond(HttpStatusCode.BadRequest)
             throw cause
         }
-        exception<AuthenticationException> {cause ->
+        exception<AuthenticationException> { cause ->
             call.respond(HttpStatusCode.Unauthorized)
             throw cause
         }
-        exception<AuthorizationException> {cause ->
+        exception<AuthorizationException> { cause ->
             call.respond(HttpStatusCode.Forbidden)
             throw cause
         }
-        exception<ConflictException> {cause ->
+        exception<ConflictException> { cause ->
             call.respond(HttpStatusCode.Conflict)
             throw cause
         }

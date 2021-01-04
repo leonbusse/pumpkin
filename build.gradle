@@ -2,13 +2,15 @@ buildscript {
     repositories {
         jcenter()
     }
-    
+
     dependencies {
+        classpath 'com.github.jengelman.gradle.plugins:shadow:4.0.1'
         classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
         classpath "org.jetbrains.kotlin:kotlin-serialization:$kotlin_version"
     }
 }
 
+apply plugin: 'com.github.johnrengelman.shadow'
 apply plugin: 'kotlin'
 apply plugin: 'application'
 apply plugin: 'kotlinx-serialization'
@@ -29,6 +31,12 @@ repositories {
     jcenter()
     maven { url 'https://kotlin.bintray.com/ktor' }
     maven { url 'https://kotlin.bintray.com/kotlin-js-wrappers' }
+}
+
+shadowJar {
+    manifest {
+        attributes 'Main-Class': mainClassName
+    }
 }
 
 dependencies {
