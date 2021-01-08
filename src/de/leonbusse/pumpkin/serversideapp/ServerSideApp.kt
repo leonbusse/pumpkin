@@ -138,7 +138,7 @@ class ServerSideApp(configuration: Configuration) {
                 session.spotifyAccessToken,
                 session.spotifyRefreshToken
             )
-            val shareLink = URLBuilder(baseUrl).path("share",shareId).buildString()
+            val shareLink = URLBuilder(baseUrl).path("share", shareId).buildString()
             call.sessions.set(session.copy(spotifyAccessToken = updatedSpotifyAccessToken))
             call.respondHtml {
                 head { title { +"Pumpkin | Your library link" } }
@@ -250,6 +250,7 @@ class ServerSideApp(configuration: Configuration) {
             val (playlist, spotifyAccessToken) = pumpkinApi.export(
                 session.userId,
                 playlistName,
+                listOf(),
                 session.spotifyAccessToken,
                 session.spotifyRefreshToken
             )

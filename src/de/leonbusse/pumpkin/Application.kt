@@ -57,7 +57,7 @@ fun Application.module(testing: Boolean = false) {
             }
             install(Logging) {
                 logger = Logger.DEFAULT
-                level = LogLevel.ALL
+                level = LogLevel.HEADERS
             }
         }
     }
@@ -135,8 +135,8 @@ fun Application.module(testing: Boolean = false) {
             call.respond(
                 mapOf(
                     "error" to mapOf(
-                        "status" to it.value.toString(),
-                        "message" to it.description
+                        "statusCode" to it.value.toString(),
+                        "message" to it.description,
                     )
                 )
             )
@@ -179,7 +179,7 @@ fun Application.module(testing: Boolean = false) {
 
                     val tracks = pumpkinApi.getTracks(userId, limit = limit, offset = offset)
                         ?: throw NotFoundException()
-                    println("tracks: $tracks")
+//                    println("tracks: $tracks")
                     call.respond(HttpStatusCode.OK, tracks)
                 }
 
@@ -212,10 +212,12 @@ fun Application.module(testing: Boolean = false) {
                     val (playlist, _) = pumpkinApi.export(
                         request.userId,
                         request.playlistName,
+                        request.trackIds,
                         request.spotifyAccessToken,
                         null
                     )
-                    call.respond(CreatePlaylistResponse(playlist))
+
+                    call.respond(CreatePlaylistResponse(playlist).also { println("respond: $it") })
                 }
             }
         }

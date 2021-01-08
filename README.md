@@ -49,6 +49,12 @@ Or
 ```
 docker run -m512M --cpus 1 -it -p 8080:8080 --rm \
     --env-file .env \
-    leonbusse/pumpkin:$PUMPKIN_VERSION
+    leonbusse/pumpkin:0.0.1
 ```
 
+
+# Setup HTTPS on VPS
+
+https://www.digitalocean.com/community/tutorials/how-to-install-nginx-on-ubuntu-20-04-de
+
+https://www.digitalocean.com/community/tutorials/how-to-set-up-let-s-encrypt-with-nginx-server-blocks-on-ubuntu-16-04

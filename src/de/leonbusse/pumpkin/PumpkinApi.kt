@@ -80,6 +80,7 @@ class PumpkinApi(
         return tracks.slice(o until min(tracks.size, o + l))
     }
 
+    @Deprecated(message = "Retained for ServerSideApp")
     suspend fun like(trackIds: List<String>, userId: String, libraryUserId: String) {
         println("api.like")
         val alreadyLiked = DB.getLikes(userId)
@@ -98,12 +99,11 @@ class PumpkinApi(
     suspend fun export(
         userId: String,
         playlistName: String,
+        trackIds:List<String>,
         accessToken: String,
         refreshToken: String?
     ): ExportResult {
-        val trackIds = DB.getLikes(userId).map { it.id }
-        // don't create playlist without tracks
-        if (trackIds.isEmpty()) throw ConflictException()
+        if (trackIds.isEmpty()) throw BadRequestException("Empty track ID list is invalid.")
 
         val (playlist, spotifyAccessToken) =
             spotifyApi.createPlaylist(
@@ -113,7 +113,6 @@ class PumpkinApi(
                 accessToken,
                 refreshToken
             )
-        DB.clearLikes(userId)
         return ExportResult(playlist, spotifyAccessToken)
     }
 

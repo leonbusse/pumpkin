@@ -25,6 +25,7 @@ data class CreatePlaylistRequest(
     val userId: String,
     val libraryUserId: String,
     val playlistName: String,
+    val trackIds: List<String>,
 )
 
 @Serializable
