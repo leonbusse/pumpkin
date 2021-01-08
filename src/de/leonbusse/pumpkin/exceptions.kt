@@ -1,5 +1,5 @@
 package de.leonbusse.pumpkin
 
-class AuthenticationException: Exception()
+class AuthenticationException(inner: Exception): Exception(inner)
 class AuthorizationException: Exception()
 class ConflictException: Exception()

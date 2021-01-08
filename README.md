@@ -31,6 +31,8 @@ docker run -m512M --cpus 1 -it -p 8080:8080 --rm \
 ```
 docker login docker.io
 
+docker build -t pumpkin-0.0.1 . 
+
 docker tag pumpkin-0.0.1 leonbusse/pumpkin:0.0.1
 
 docker push leonbusse/pumpkin:0.0.1  

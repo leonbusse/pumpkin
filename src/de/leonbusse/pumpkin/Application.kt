@@ -40,7 +40,7 @@ fun Application.module(testing: Boolean = false) {
     val spotifyClientSecret = dotenv["SPOTIFY_CLIENT_SECRET"]
     val basicAuthToken = "Basic " + "$spotifyClientId:$spotifyClientSecret".base64()
 
-     val jedis = Jedis("redis", 6379)
+    val jedis = Jedis("redis", 6379)
     val spotifyCache = SpotifyCache(jedis)
     val pumpkinCache = PumpkinCache(jedis)
 
@@ -181,8 +181,7 @@ fun Application.module(testing: Boolean = false) {
                         request.spotifyAccessToken,
                         null
                     )
-
-                    call.respond(CreatePlaylistResponse(playlist).also { println("respond: $it") })
+                    call.respond(CreatePlaylistResponse(playlist.id))
                 }
             }
         }

@@ -16,7 +16,7 @@ data class ImportResponse(
 
 @Serializable
 data class CreatePlaylistResponse(
-    val playlist: SpotifyPlaylist
+    val playlistId: String
 )
 
 @Serializable
@@ -28,13 +28,46 @@ data class CreatePlaylistRequest(
     val trackIds: List<String>,
 )
 
+/** Pumpkin models */
+
 @Serializable
-data class LikeTracksRequest(
-    val userId: String,
-    val libraryUserId: String,
-    val trackIds: List<String>,
+data class PumpkinTrack(
+    val id: String,
+    val name: String,
+    val previewUrl: String?,
+    val album: String,
+    val artists: List<String>,
+    val imageUrl: String
 )
 
+fun SpotifyTrack.toPumpkinTrack() = PumpkinTrack(
+    id = this.id,
+    name = this.name,
+    previewUrl = this.preview_url,
+    album = this.album.name,
+    artists = this.artists.map { it.name },
+    imageUrl = this.album.images.getOrNull(0)?.url ?: ""
+)
+
+@Serializable
+data class PumpkinUser(
+    val id: String,
+    val displayName: String,
+    val email: String,
+)
+
+fun SpotifyUser.toPumpkinUser() = PumpkinUser(
+    this.id,
+    this.display_name,
+    this.email
+)
+
+@Serializable
+data class PumpkinPlaylist(
+    val id: String,
+    val name: String,
+    val tracks: List<PumpkinTrack>
+)
 
 /** Spotify models **/
 
@@ -52,7 +85,7 @@ data class SpotifyTrack(
     val name: String,
     val preview_url: String?,
     val album: SpotifyAlbum,
-    val artist: SpotifyArtist?
+    val artists: List<SpotifyArtist>
 )
 
 @Serializable
@@ -89,7 +122,8 @@ data class SpotifyImage(
 @Serializable
 data class SpotifyLibrary(
     val user: SpotifyUser,
-    val tracks: List<SpotifyTrack>
+    val tracks: List<SpotifyTrack>,
+    val playlists: List<PumpkinPlaylist>
 )
 
 
@@ -108,6 +142,12 @@ data class SpotifyTokenResponse(val access_token: String, val refresh_token: Str
 data class SpotifyTrackEdge(
     val track: SpotifyTrack,
     val added_at: String
+)
+
+@Serializable
+data class SpotifyPlaylistsResponse(
+    val href: String,
+    val items: List<SpotifyPlaylist>
 )
 
 @Serializable

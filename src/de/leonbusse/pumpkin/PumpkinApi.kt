@@ -18,15 +18,16 @@ class PumpkinApi(
             throw BadRequestException("invalid Spotify access token")
         } else {
             val (spotifyLibrary, accessToken) = spotifyApi.import(spotifyAccessToken, spotifyRefreshToken)
+            cache.rememberAccessToken(spotifyAccessToken)
             cache.setSpotifyLibrary(spotifyLibrary)
 
             return ImportLibraryResult(generateShareId(spotifyLibrary), accessToken)
         }
     }
 
-    fun getUser(userId: String): SpotifyUser? = cache.getSpotifyLibrary(userId)?.user
+    suspend fun getUser(userId: String): PumpkinUser? = cache.getSpotifyLibrary(userId)?.user?.toPumpkinUser()
 
-    fun getTracks(userId: String, limit: Int? = null, offset: Int? = null): List<SpotifyTrack> {
+    suspend fun getTracks(userId: String, limit: Int? = null, offset: Int? = null): List<PumpkinTrack> {
         val o = offset ?: 0
         val l = limit ?: 10
         val tracks = cache.getSpotifyLibrary(userId)?.tracks
@@ -34,7 +35,9 @@ class PumpkinApi(
         if (o >= tracks.size) {
             return listOf()
         }
-        return tracks.slice(o until min(tracks.size, o + l))
+        return tracks
+            .slice(o until min(tracks.size, o + l))
+            .map { it.toPumpkinTrack() }
     }
 
     data class ExportResult(
