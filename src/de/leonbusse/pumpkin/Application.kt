@@ -1,7 +1,5 @@
 package de.leonbusse.pumpkin
 
-import de.leonbusse.pumpkin.serversideapp.ServerSideApp
-import de.leonbusse.pumpkin.serversideapp.install
 import io.github.cdimascio.dotenv.Dotenv
 import io.github.cdimascio.dotenv.dotenv
 import io.ktor.application.*
@@ -17,7 +15,7 @@ import io.ktor.request.*
 import io.ktor.response.*
 import io.ktor.routing.*
 import io.ktor.serialization.*
-import io.ktor.sessions.*
+import redis.clients.jedis.Jedis
 
 lateinit var dotenv: Dotenv
 
@@ -38,19 +36,15 @@ fun Application.module(testing: Boolean = false) {
     println("SPOTIFY_CLIENT_ID: ${dotenv["SPOTIFY_CLIENT_ID"]}")
 
     val baseUrl = URLBuilder().takeFrom(dotenv["BASE_URL"]).build()
-    val spotifyRedirectUri = URLBuilder().takeFrom(baseUrl).apply {
-        path(
-            *baseUrl.encodedPath.splitPath().toTypedArray(),
-            "spotify", "callback"
-        )
-    }.buildString()
     val spotifyClientId = dotenv["SPOTIFY_CLIENT_ID"]
     val spotifyClientSecret = dotenv["SPOTIFY_CLIENT_SECRET"]
-    val spotifyScope =
-        "user-read-private playlist-read-private user-read-email user-library-read playlist-modify-private"
     val basicAuthToken = "Basic " + "$spotifyClientId:$spotifyClientSecret".base64()
 
-    val client: HttpClient by lazy {
+     val jedis = Jedis("redis", 6379)
+    val spotifyCache = SpotifyCache(jedis)
+    val pumpkinCache = PumpkinCache(jedis)
+
+    val httpClient: HttpClient by lazy {
         HttpClient(CIO) {
             install(JsonFeature) {
                 serializer = GsonSerializer()
@@ -62,17 +56,8 @@ fun Application.module(testing: Boolean = false) {
         }
     }
 
-    val pumpkinApi = PumpkinApi(client, basicAuthToken)
-
-    val serverSideApp = install(ServerSideApp) {
-        this.pumpkinApi = pumpkinApi
-        this.client = client
-        this.basicAuthToken = basicAuthToken
-        this.baseUrl = baseUrl
-        this.spotifyClientId = spotifyClientId
-        this.spotifyScope = spotifyScope
-        this.spotifyRedirectUri = spotifyRedirectUri
-    }
+    val spotifyApi = SpotifyApi(spotifyCache, httpClient, basicAuthToken)
+    val pumpkinApi = PumpkinApi(pumpkinCache, spotifyApi)
 
     install(DefaultHeaders) {
         header("X-Engine", "Ktor")
@@ -141,18 +126,12 @@ fun Application.module(testing: Boolean = false) {
                 )
             )
         }
-
-        install(serverSideApp)
     }
 
     install(ContentNegotiation) {
         json(kotlinx.serialization.json.Json {
             prettyPrint = true
         })
-    }
-
-    install(Sessions) {
-        install(serverSideApp)
     }
 
     routing {
@@ -192,20 +171,6 @@ fun Application.module(testing: Boolean = false) {
                     call.respond(HttpStatusCode.OK, user)
                 }
 
-                put("/like") {
-                    println("/like put")
-                    val request = call.receive<LikeTracksRequest>()
-                    pumpkinApi.like(request.trackIds, request.userId, request.libraryUserId)
-                    call.respond(HttpStatusCode.OK)
-                }
-
-                post("/like") {
-                    println("/like post")
-                    val request = call.receive<LikeTracksRequest>()
-                    pumpkinApi.like(request.trackIds, request.userId, request.libraryUserId)
-                    call.respond(HttpStatusCode.OK)
-                }
-
                 post("/create-playlist") {
                     println("/create-playlist")
                     val request = call.receive<CreatePlaylistRequest>()
@@ -221,7 +186,5 @@ fun Application.module(testing: Boolean = false) {
                 }
             }
         }
-
-        install(serverSideApp)
     }
 }

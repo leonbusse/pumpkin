@@ -5,50 +5,10 @@ import io.ktor.client.features.*
 import io.ktor.client.request.*
 import io.ktor.client.request.forms.*
 import io.ktor.http.*
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import java.lang.ref.WeakReference
 import java.util.*
 
-class Cache {
-    data class CacheEntry<T>(val ts: Long, val item: T)
-
-    companion object {
-        const val CACHE_CLEANER_INTERVAL: Long = 60 * 1000 // 1 minute
-        const val USER_TTL: Long = 20 * 60 * 1000 // 20 minutes
-    }
-
-    private val selfReference = WeakReference(this)
-
-    init {
-        GlobalScope.launch {
-            while (selfReference.get() != null) {
-                delay(CACHE_CLEANER_INTERVAL)
-                println("Cache: cleaning...")
-                val now = Date().time
-                users.filter { it.value.ts < now - USER_TTL }
-                    .forEach {
-                        println("Cache: removing user ${it.value.item.id}")
-                        users.remove(it.key)
-                    }
-            }
-        }
-    }
-
-    private val users = mutableMapOf<String, CacheEntry<SpotifyUser>>()
-
-    fun user(key: String): SpotifyUser? = users[key]?.item
-        ?.also { println("Cache: HIT user: $key") }
-        ?: null.also { println("Cache: MISS user: $key") }
-
-    fun user(key: String, user: SpotifyUser) {
-        users[key] = CacheEntry(Date().time, user)
-        println("Cache: SET user: $key")
-    }
-}
-
 class SpotifyApi(
+    private val cache: SpotifyCache,
     private val client: HttpClient,
     private val basicAuthToken: String?
 ) {
@@ -61,12 +21,10 @@ class SpotifyApi(
         val refreshToken: String?
     )
 
-    private val cache = Cache()
-
     suspend fun import(accessToken: String, refreshToken: String?): Pair<SpotifyLibrary, String> {
         val session = SpotifySession(accessToken, refreshToken)
 
-        val user: SpotifyUser = cache.user(accessToken)
+        val user: SpotifyUser = cache.getSpotifyUser(accessToken)
             ?: client.spotifyRequest<SpotifyUser>(session) {
                 url {
                     protocol = URLProtocol.HTTPS
@@ -74,7 +32,7 @@ class SpotifyApi(
                     path("v1", "me")
                 }
                 method = HttpMethod.Get
-            }.also { cache.user(accessToken, it) }
+            }.also { cache.setSpotifyUser(accessToken, it) }
 //        println("user: $user")
         val likedTracks = fetchTracks(session)
 
