@@ -8,63 +8,58 @@ class PumpkinApi(
     private val spotifyApi: SpotifyApi,
 ) {
 
-    data class ImportLibraryResult(
-        val shareId: String,
-        val spotifyAccessToken: String
-    )
-
-    suspend fun importLibrary(spotifyAccessToken: String, spotifyRefreshToken: String?): ImportLibraryResult {
-        if (spotifyAccessToken.isBlank()) {
+    suspend fun initializeSharedLibrary(accessToken: String): String {
+        if (accessToken.isBlank()) {
             throw BadRequestException("invalid Spotify access token")
         } else {
-            val (spotifyLibrary, accessToken) = spotifyApi.import(spotifyAccessToken, spotifyRefreshToken)
-            cache.rememberAccessToken(spotifyAccessToken)
-            cache.setSpotifyLibrary(spotifyLibrary)
+            val spotifyLibrary = spotifyApi.getSpotifyLibrary(accessToken)
+            val shareId = generateShareId()
+            val likedTracks: List<PumpkinTrack> = spotifyLibrary.tracks.take(100)
+            val shareTracks: List<PumpkinTrack> = spotifyLibrary.playlists
+                .map { it.tracks.take(100) }
+                .plusElement(likedTracks)
+                .flatten()
+                .shuffled()
 
-            return ImportLibraryResult(generateShareId(spotifyLibrary), accessToken)
+            cache.setUserIdByShareId(shareId, spotifyLibrary.user.id)
+            cache.setTracksByShareId(shareId, shareTracks)
+            return shareId
         }
     }
 
-    suspend fun getUser(userId: String): PumpkinUser? = cache.getSpotifyLibrary(userId)?.user?.toPumpkinUser()
+    suspend fun getCachedUser(userId: String): PumpkinUser? = spotifyApi.getCachedSpotifyUser(userId)?.toPumpkinUser()
 
-    suspend fun getTracks(userId: String, limit: Int? = null, offset: Int? = null): List<PumpkinTrack> {
+    suspend fun getCachedUserByShareId(shareId: String): PumpkinUser? {
+        return cache.getUserIdByShareId(shareId)
+            ?.let { userId -> spotifyApi.getCachedSpotifyUser(userId)?.toPumpkinUser() }
+    }
+
+    suspend fun getTracksByShareId(shareId: String, limit: Int? = null, offset: Int? = null): List<PumpkinTrack> {
         val o = offset ?: 0
         val l = limit ?: 10
-        val tracks = cache.getSpotifyLibrary(userId)?.tracks
-            ?: throw NotFoundException("no tracks for user $userId are available")
+        val tracks = cache.getTracksByShareId(shareId)
+            ?: throw NotFoundException("no tracks for user $shareId are available")
         if (o >= tracks.size) {
             return listOf()
         }
-        return tracks
-            .slice(o until min(tracks.size, o + l))
-            .map { it.toPumpkinTrack() }
+        return tracks.slice(o until min(tracks.size, o + l))
     }
 
-    data class ExportResult(
-        val playlist: SpotifyPlaylist,
-        val spotifyAccessToken: String
-    )
-
-    suspend fun export(
+    suspend fun createPlaylist(
         userId: String,
         playlistName: String,
         trackIds: List<String>,
-        accessToken: String,
-        refreshToken: String?
-    ): ExportResult {
+        accessToken: String
+    ): SpotifyPlaylist {
         if (trackIds.isEmpty()) throw BadRequestException("Empty track ID list is invalid.")
 
-        val (playlist, spotifyAccessToken) =
-            spotifyApi.createPlaylist(
-                userId,
-                trackIds,
-                playlistName,
-                accessToken,
-                refreshToken
-            )
-        return ExportResult(playlist, spotifyAccessToken)
+        return spotifyApi.createPlaylist(
+            userId,
+            trackIds,
+            playlistName,
+            accessToken
+        )
     }
 
-    private fun generateShareId(library: SpotifyLibrary): String =
-        library.user.id
+    private fun generateShareId(): String = generateRandomString(8)
 }

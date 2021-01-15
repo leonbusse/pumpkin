@@ -3,53 +3,57 @@ package de.leonbusse.pumpkin
 import io.ktor.client.*
 import io.ktor.client.features.*
 import io.ktor.client.request.*
-import io.ktor.client.request.forms.*
 import io.ktor.http.*
-import java.util.*
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 class SpotifyApi(
     private val cache: SpotifyCache,
     private val client: HttpClient,
-    private val basicAuthToken: String?
 ) {
     companion object {
         const val spotifyTracksMaxLimit = 50
         const val spotifyPlaylistsMaxLimit = 20
     }
 
-    private class SpotifySession(
-        var accessToken: String,
-        val refreshToken: String?
-    )
+    suspend fun getSpotifyLibrary(accessToken: String): SpotifyLibrary {
+        val user = fetchUserByToken(accessToken)
+        return fetchLibrary(user, accessToken)
+    }
 
-    suspend fun import(accessToken: String, refreshToken: String?): Pair<SpotifyLibrary, String> {
-        val session = SpotifySession(accessToken, refreshToken)
+    suspend fun getCachedSpotifyUser(userId: String): SpotifyUser? =
+        cache.getSpotifyUserById(userId)
 
-        val user: SpotifyUser = cache.getSpotifyUser(accessToken)
-            ?: client.spotifyRequest<SpotifyUser>(session) {
+    private suspend fun fetchLibrary(user: SpotifyUser, accessToken: String): SpotifyLibrary {
+        return cache.getLibraryByUserId(user.id)
+            ?: run {
+                val likedTracks = fetchTracks("https://api.spotify.com/v1/me/tracks", accessToken)
+                val playlists = fetchPlaylists(accessToken)
+                SpotifyLibrary(user, likedTracks, playlists)
+                    .also { cache.setLibraryByUserId(it) }
+            }
+    }
+
+    private suspend fun fetchUserByToken(accessToken: String): SpotifyUser =
+        cache.getSpotifyUserByToken(accessToken)
+            ?: client.spotifyRequest<SpotifyUser>(accessToken) {
                 url {
                     protocol = URLProtocol.HTTPS
                     host = "api.spotify.com"
                     path("v1", "me")
                 }
                 method = HttpMethod.Get
-            }.also { cache.setSpotifyUser(accessToken, it) }
-        val likedTracks = fetchTracks("https://api.spotify.com/v1/me/tracks", session)
-        val playlists = fetchPlaylists(session)
-
-        return SpotifyLibrary(user, likedTracks, playlists) to session.accessToken
-    }
+            }.also { cache.setSpotifyUserByToken(accessToken, it) }
 
     suspend fun createPlaylist(
         userId: String,
         trackIds: List<String>,
         playlistName: String,
-        accessToken: String,
-        refreshToken: String?
-    ): Pair<SpotifyPlaylist, String> {
-        val session = SpotifySession(accessToken, refreshToken)
+        accessToken: String
+    ): SpotifyPlaylist {
         val playlist: SpotifyPlaylist =
-            client.spotifyRequest(session) {
+            client.spotifyRequest(accessToken) {
                 method = HttpMethod.Post
                 url {
                     protocol = URLProtocol.HTTPS
@@ -63,7 +67,7 @@ class SpotifyApi(
                 )
             }
         val addTracksResponse: String =
-            client.spotifyRequest(session) {
+            client.spotifyRequest(accessToken) {
                 method = HttpMethod.Post
                 url {
                     protocol = URLProtocol.HTTPS
@@ -76,22 +80,18 @@ class SpotifyApi(
                     "position" to 0
                 )
             }
-        return playlist to session.accessToken
+        return playlist
     }
 
-    private suspend fun fetchTracks(href: String, session: SpotifySession): List<SpotifyTrack> {
+    private suspend fun fetchTracks(href: String, accessToken: String): List<PumpkinTrack> {
         val tracks = mutableListOf<SpotifyTrack>()
         var responseSize = spotifyTracksMaxLimit
         var offset = 0
         while (offset < 150 && responseSize == spotifyTracksMaxLimit) {
             val tracksResponse: SpotifyTracksResponse =
-                client.spotifyRequest(session) {
-                    url {
-                        protocol = URLProtocol.HTTPS
-                        host = "api.spotify.com"
-                        path("v1", "me", "tracks")
-                    }
+                client.spotifyRequest(accessToken) {
                     method = HttpMethod.Get
+                    url(href)
                     parameter("limit", 50)
                     parameter("offset", offset)
                 }
@@ -100,15 +100,17 @@ class SpotifyApi(
             offset += tracksResponse.items.size
         }
         return tracks
+            .map { it.toPumpkinTrack() }
+            .filter { it.previewUrl != null }
     }
 
-    private suspend fun fetchPlaylists(session: SpotifySession): List<PumpkinPlaylist> {
+    private suspend fun fetchPlaylists(accessToken: String): List<PumpkinPlaylist> = coroutineScope {
         val playlists = mutableListOf<SpotifyPlaylist>()
         var responseSize = spotifyPlaylistsMaxLimit
         var offset = 0
         while (offset < 150 && responseSize == spotifyTracksMaxLimit) {
             val tracksResponse: SpotifyPlaylistsResponse =
-                client.spotifyRequest(session) {
+                client.spotifyRequest(accessToken) {
                     url {
                         protocol = URLProtocol.HTTPS
                         host = "api.spotify.com"
@@ -123,80 +125,33 @@ class SpotifyApi(
             offset += tracksResponse.items.size
         }
 
-        val pumpkinPlaylists = playlists.map {
-            PumpkinPlaylist(
-                it.id,
-                it.name,
-                fetchTracks(it.tracks.href, session).map { it.toPumpkinTrack() })
-        }
-        return pumpkinPlaylists
+        playlists.map {
+            async {
+                PumpkinPlaylist(
+                    it.id,
+                    it.name,
+                    fetchTracks(it.tracks.href, accessToken)
+                )
+            }
+        }.awaitAll()
     }
 
     private suspend inline fun <reified T> HttpClient.spotifyRequest(
-        session: SpotifySession,
+        accessToken: String,
         block: HttpRequestBuilder.() -> Unit
     ): T =
         try {
             this.request {
                 block()
                 headers {
-                    append("Authorization", "Bearer ${session.accessToken}")
+                    append("Authorization", "Bearer $accessToken")
                 }
             }
         } catch (e: ClientRequestException) {
-            if (e.response.status == HttpStatusCode.Unauthorized
-                && refreshToken(session)
-            ) {
-                try {
-                    this.request {
-                        block()
-                        headers {
-                            append("Authorization", "Bearer ${session.accessToken}")
-                        }
-                    }
-                } catch (e: ClientRequestException) {
-                    throw AuthenticationException(e)
-                }
-            } else throw AuthenticationException(e)
-        }
-
-    private suspend fun refreshToken(session: SpotifySession): Boolean {
-        println("refreshing access token...")
-        return if (session.refreshToken == null) {
-            println("can't refresh access token without refresh token")
-            false
-        } else if (basicAuthToken == null) {
-            println("can't refresh access token basic authentication credentials")
-            false
-        } else {
-            try {
-                val response: SpotifyRefreshTokenResponse = client.request {
-                    method = HttpMethod.Post
-                    url {
-                        protocol = URLProtocol.HTTPS
-                        host = "accounts.spotify.com"
-                        path("api", "token")
-                    }
-                    body = FormDataContent(
-                        parametersOf(
-                            Pair("grant_type", listOf("refresh_token")),
-                            Pair("refresh_token", listOf(session.refreshToken))
-                        )
-                    )
-                    header("Authorization", basicAuthToken)
-                }
-                session.accessToken = response.access_token
-                true
-            } catch (e: Exception) {
-                false
+            if (e.response.status == HttpStatusCode.Unauthorized) {
+                throw AuthenticationException(e)
+            } else {
+                throw e
             }
         }
-    }
-
-    data class SpotifyRefreshTokenResponse(
-        val access_token: String,
-        val token_type: String,
-        val scope: String,
-        val expires_in: Int
-    )
 }

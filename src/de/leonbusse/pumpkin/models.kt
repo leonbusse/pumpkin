@@ -122,7 +122,7 @@ data class SpotifyImage(
 @Serializable
 data class SpotifyLibrary(
     val user: SpotifyUser,
-    val tracks: List<SpotifyTrack>,
+    val tracks: List<PumpkinTrack>,
     val playlists: List<PumpkinPlaylist>
 )
 

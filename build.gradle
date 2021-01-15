@@ -47,7 +47,7 @@ dependencies {
     implementation "io.ktor:ktor-server-core:$ktor_version"
     implementation "io.ktor:ktor-serialization:$ktor_version"
     implementation "io.ktor:ktor-html-builder:$ktor_version"
-    implementation "org.jetbrains:kotlin-css-jvm:1.0.0-pre.31-kotlin-1.2.41"
+    implementation("org.jetbrains:kotlin-css-jvm:1.0.0-pre.31-kotlin-1.2.41")
     implementation "io.ktor:ktor-server-host-common:$ktor_version"
     testImplementation "io.ktor:ktor-server-tests:$ktor_version"
 
@@ -57,6 +57,7 @@ dependencies {
     implementation "io.ktor:ktor-client-logging:$ktor_version"
 
     implementation("redis.clients:jedis:3.4.1")
+    implementation("io.github.cdimascio:dotenv-kotlin:6.2.1")
 
-    implementation "io.github.cdimascio:dotenv-kotlin:6.2.1"
+    testImplementation("io.mockk:mockk:1.10.4")
 }

@@ -17,46 +17,93 @@ const val ONE_WEEK = 7 * ONE_DAY
 const val USER_TTL = ONE_HOUR
 const val LIBRARY_TTL = ONE_WEEK
 const val ACCESS_TOKEN_TTL = 20 * ONE_MINUTE
+const val SHARE_TRACKS_TTL = ONE_WEEK
 
 val jedisMutex = Mutex()
 
 class PumpkinCache(private val jedis: Jedis) {
-    suspend fun setSpotifyLibrary(library: SpotifyLibrary): Unit = jedisMutex.withLock {
+    suspend fun setTracksByShareId(shareId: String, tracks: List<PumpkinTrack>): Unit = jedisMutex.withLock {
         jedis.set(
-            "PumpkinCache:SpotifyLibrary:${library.user.id}",
-            Json.encodeToString(library),
-            SetParams().ex(LIBRARY_TTL)
+            "PumpkinCache:SharedTracks:$shareId",
+            Json.encodeToString(tracks),
+            SetParams().ex(SHARE_TRACKS_TTL)
         )
     }
 
-    suspend fun getSpotifyLibrary(userId: String): SpotifyLibrary? = jedisMutex.withLock {
-        jedis.get("PumpkinCache:SpotifyLibrary:$userId")?.let { Json.decodeFromString<SpotifyLibrary>(it) }
+    suspend fun getTracksByShareId(shareId: String): List<PumpkinTrack>? = jedisMutex.withLock {
+        jedis.get("PumpkinCache:SharedTracks:$shareId")
+            ?.let { Json.decodeFromString<List<PumpkinTrack>>(it) }
+            .logCacheAccess("getTracksByShareId")
     }
 
-    suspend fun rememberAccessToken(token: String): Unit = jedisMutex.withLock {
+    suspend fun setUserIdByShareId(shareId: String, userId: String): Unit = jedisMutex.withLock {
         jedis.set(
-            "SpotifyAccessToken:$token",
-            "",
-            SetParams().nx().ex(ACCESS_TOKEN_TTL)
+            "PumpkinCache:UserIdByShareId:$shareId",
+            userId,
+            SetParams().ex(SHARE_TRACKS_TTL)
         )
     }
 
-    suspend fun accessTokenIsKnown(token: String): Boolean = jedisMutex.withLock {
-        return jedis.get("SpotifyAccessToken:$token") != null
+    suspend fun getUserIdByShareId(shareId: String): String? = jedisMutex.withLock {
+        jedis.get("PumpkinCache:UserIdByShareId:$shareId")
+            .logCacheAccess("getUserIdByShareId")
     }
 }
 
-
 class SpotifyCache(private val jedis: Jedis) {
-    suspend fun setSpotifyUser(key: String, user: SpotifyUser): Unit = jedisMutex.withLock {
+    suspend fun setSpotifyUserByToken(token: String, user: SpotifyUser): Unit = jedisMutex.withLock {
         jedis.set(
-            "SpotifyCache:SpotifyUser:$key",
+            "SpotifyCache:SpotifyUserId:$token",
+            user.id,
+            SetParams().ex(ACCESS_TOKEN_TTL)
+        )
+        setSpotifyUserByIdInternal(user.id, user)
+    }
+
+    suspend fun getSpotifyUserByToken(token: String): SpotifyUser? = jedisMutex.withLock {
+        jedis.get("SpotifyCache:SpotifyUserId:$token")
+            ?.let { getSpotifyUserByIdInternal(it) }
+            .logCacheAccess("getSpotifyUserByToken")
+    }
+
+    suspend fun setSpotifyUserById(userId: String, user: SpotifyUser): Unit = jedisMutex.withLock {
+        setSpotifyUserByIdInternal(userId, user)
+    }
+
+    suspend fun getSpotifyUserById(userId: String): SpotifyUser? = jedisMutex.withLock {
+        getSpotifyUserByIdInternal(userId)
+            .logCacheAccess("getSpotifyUserById")
+    }
+
+    private fun setSpotifyUserByIdInternal(userId: String, user: SpotifyUser) {
+        jedis.set(
+            "SpotifyCache:SpotifyUser:$userId",
             Json.encodeToString(user),
             SetParams().ex(USER_TTL)
         )
     }
 
-    suspend fun getSpotifyUser(key: String): SpotifyUser? = jedisMutex.withLock {
-        jedis.get("SpotifyCache:SpotifyUser:$key")?.let { Json.decodeFromString<SpotifyUser>(it) }
+    private fun getSpotifyUserByIdInternal(userId: String): SpotifyUser? =
+        jedis.get("SpotifyCache:SpotifyUser:$userId")
+            ?.let { Json.decodeFromString<SpotifyUser>(it) }
+            .logCacheAccess("getSpotifyUserByIdInternal")
+
+    suspend fun setLibraryByUserId(library: SpotifyLibrary): Unit = jedisMutex.withLock {
+        jedis.set(
+            "SpotifyCache:SpotifyLibrary:${library.user.id}",
+            Json.encodeToString(library),
+            SetParams().ex(LIBRARY_TTL)
+        )
     }
+
+    suspend fun getLibraryByUserId(userId: String): SpotifyLibrary? = jedisMutex.withLock {
+        jedis.get("SpotifyCache:SpotifyLibrary:$userId")
+            ?.let { Json.decodeFromString<SpotifyLibrary>(it) }
+            .logCacheAccess("getLibraryByUserId")
+    }
+}
+
+fun <T> T?.logCacheAccess(name: String): T? = this.also {
+    if (this == null) println("Cache HIT - $name: $this")
+    else println("Cache MISS: $name")
 }

@@ -32,13 +32,6 @@ fun Application.module(testing: Boolean = false) {
     }
 
     println("init pumpkin...")
-    println("BASE_URL: ${dotenv["BASE_URL"]}")
-    println("SPOTIFY_CLIENT_ID: ${dotenv["SPOTIFY_CLIENT_ID"]}")
-
-    val baseUrl = URLBuilder().takeFrom(dotenv["BASE_URL"]).build()
-    val spotifyClientId = dotenv["SPOTIFY_CLIENT_ID"]
-    val spotifyClientSecret = dotenv["SPOTIFY_CLIENT_SECRET"]
-    val basicAuthToken = "Basic " + "$spotifyClientId:$spotifyClientSecret".base64()
 
     val jedis = Jedis("redis", 6379)
     val spotifyCache = SpotifyCache(jedis)
@@ -56,7 +49,7 @@ fun Application.module(testing: Boolean = false) {
         }
     }
 
-    val spotifyApi = SpotifyApi(spotifyCache, httpClient, basicAuthToken)
+    val spotifyApi = SpotifyApi(spotifyCache, httpClient)
     val pumpkinApi = PumpkinApi(pumpkinCache, spotifyApi)
 
     install(DefaultHeaders) {
@@ -146,27 +139,34 @@ fun Application.module(testing: Boolean = false) {
                 post("/import") {
                     val request = call.receive<ImportRequest>()
                     val spotifyAccessToken = request.spotifyAccessToken
-                    val (shareId, _) = pumpkinApi.importLibrary(spotifyAccessToken, null)
+                    val shareId = pumpkinApi.initializeSharedLibrary(spotifyAccessToken)
                     call.respond(ImportResponse(shareId))
                 }
 
-                get("/tracks/{userId}") {
-                    val userId = call.parameters["userId"]
-                        ?: throw BadRequestException("missing path parameter userId")
+                get("/tracks/{shareId}") {
+                    val shareId = call.parameters["shareId"]
+                        ?: throw BadRequestException("missing path parameter shareId")
                     val limit = call.request.queryParameters["limit"]?.toIntOrNull()
                     val offset = call.request.queryParameters["offset"]?.toIntOrNull()
 
-                    val tracks = pumpkinApi.getTracks(userId, limit = limit, offset = offset)
-                        ?: throw NotFoundException()
-//                    println("tracks: $tracks")
+                    val tracks = pumpkinApi.getTracksByShareId(shareId, limit = limit, offset = offset)
                     call.respond(HttpStatusCode.OK, tracks)
+                }
+
+                get("/share/user/{shareId}") {
+                    val shareId = call.parameters["shareId"]
+                        ?: throw BadRequestException("missing path parameter userId")
+
+                    val user = pumpkinApi.getCachedUserByShareId(shareId)
+                        ?: throw NotFoundException()
+                    call.respond(HttpStatusCode.OK, user)
                 }
 
                 get("/user/{userId}") {
                     val userId = call.parameters["userId"]
                         ?: throw BadRequestException("missing path parameter userId")
 
-                    val user = pumpkinApi.getUser(userId)
+                    val user = pumpkinApi.getCachedUser(userId)
                         ?: throw NotFoundException()
                     call.respond(HttpStatusCode.OK, user)
                 }
@@ -174,12 +174,11 @@ fun Application.module(testing: Boolean = false) {
                 post("/create-playlist") {
                     println("/create-playlist")
                     val request = call.receive<CreatePlaylistRequest>()
-                    val (playlist, _) = pumpkinApi.export(
+                    val playlist = pumpkinApi.createPlaylist(
                         request.userId,
                         request.playlistName,
                         request.trackIds,
-                        request.spotifyAccessToken,
-                        null
+                        request.spotifyAccessToken
                     )
                     call.respond(CreatePlaylistResponse(playlist.id))
                 }
