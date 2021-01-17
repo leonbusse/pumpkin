@@ -33,17 +33,17 @@ Do locally:
 ```
 docker login docker.io 
 
-./gradlew :build && 
-docker build -t pumpkin-0.0.1 . &&
-docker tag pumpkin-0.0.1 leonbusse/pumpkin:0.0.1 &&
-docker push leonbusse/pumpkin:0.0.1
+PUMPKIN_VERSION=0.0.1 ./gradlew :build && 
+docker build -t pumpkin-$PUMPKIN_VERSION . &&
+docker tag pumpkin-$PUMPKIN_VERSION leonbusse/pumpkin:$PUMPKIN_VERSION &&
+docker push leonbusse/pumpkin:$PUMPKIN_VERSION
 ``` 
 
 ### Run on VPS
 
 Then on VPS:
 ```
-docker-compose up
+docker-compose up -d
 ```
 
 Or to update and restart single service without affecting others:
