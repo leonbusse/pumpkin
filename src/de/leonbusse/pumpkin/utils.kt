@@ -8,6 +8,11 @@ import io.ktor.util.pipeline.*
 import java.util.*
 
 
+fun <T> Iterable<T>.alsoForEach(block: (T) -> Unit): Iterable<T> {
+    this.forEach(block)
+    return this
+}
+
 fun String.splitPath() = this.split("/").filter(String::isNotBlank)
 
 const val charPool = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890"

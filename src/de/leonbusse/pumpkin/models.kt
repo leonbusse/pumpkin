@@ -37,17 +37,23 @@ data class PumpkinTrack(
     val previewUrl: String?,
     val album: String,
     val artists: List<String>,
-    val imageUrl: String
+    val imageUrl: String?
 )
 
-fun SpotifyTrack.toPumpkinTrack() = PumpkinTrack(
-    id = this.id,
-    name = this.name,
-    previewUrl = this.preview_url,
-    album = this.album.name,
-    artists = this.artists.map { it.name },
-    imageUrl = this.album.images.getOrNull(0)?.url ?: ""
-)
+fun SpotifyTrack.toPumpkinTrack(album: SpotifyAlbumInfo? = null): PumpkinTrack? = try {
+    PumpkinTrack(
+        id = this.id,
+        name = this.name,
+        previewUrl = this.preview_url,
+        album = (album ?: this.album)?.name ?: "",
+        artists = this.artists.map { it.name },
+        imageUrl = (album ?: this.album)?.images?.getOrNull(0)?.url
+    )
+} catch (e: Exception) {
+    if (Env.dev) e.printStackTrace()
+    null
+}
+
 
 @Serializable
 data class PumpkinUser(
@@ -69,6 +75,13 @@ data class PumpkinPlaylist(
     val tracks: List<PumpkinTrack>
 )
 
+@Serializable
+data class PumpkinAlbum(
+    val id: String,
+    val name: String,
+    val tracks: List<PumpkinTrack>
+)
+
 /** Spotify models **/
 
 @Serializable
@@ -84,8 +97,16 @@ data class SpotifyTrack(
     val id: String,
     val name: String,
     val preview_url: String?,
-    val album: SpotifyAlbum,
+    val album: SpotifyAlbumInfo? = null,
     val artists: List<SpotifyArtist>
+)
+
+@Serializable
+data class SpotifyAlbumInfo(
+    val id: String,
+    val name: String,
+    val artists: List<SpotifyArtist>,
+    val images: List<SpotifyImage>,
 )
 
 @Serializable
@@ -94,7 +115,10 @@ data class SpotifyAlbum(
     val name: String,
     val artists: List<SpotifyArtist>,
     val images: List<SpotifyImage>,
+    val tracks: SpotifyPaginationObject<SpotifyTrack>
 )
+
+fun SpotifyAlbum.toSpotifyAlbumInfo() = SpotifyAlbumInfo(id, name, artists, images)
 
 @Serializable
 data class SpotifyPlaylist(
@@ -103,7 +127,7 @@ data class SpotifyPlaylist(
     val collaborative: Boolean,
     val images: List<SpotifyImage>,
     val public: Boolean,
-    val tracks: SpotifyPlaylistTracks
+    val tracks: SpotifyPlaylistTrackPagingObject
 )
 
 @Serializable
@@ -115,49 +139,74 @@ data class SpotifyArtist(
 @Serializable
 data class SpotifyImage(
     val url: String,
-    val height: Int,
-    val width: Int
 )
 
 @Serializable
 data class SpotifyLibrary(
     val user: SpotifyUser,
     val tracks: List<PumpkinTrack>,
-    val playlists: List<PumpkinPlaylist>
+    val playlists: List<PumpkinPlaylist>,
+    val albums: List<PumpkinAlbum>
 )
 
 
 /** Spotify intermediate models **/
 
+//@Serializable
+//data class SpotifyPagingObject<T>(
+//    val href: String,
+//    val items: List<T>,
+//    val limit: Int,
+//    val offset: Int,
+//    val total: Int
+//)
+
 @Serializable
-data class SpotifyPlaylistTracks(
+data class SpotifyPlaylistTrackPagingObject(
     val href: String,
-    val total: Int
+    val total: Int,
 )
 
-@Serializable
-data class SpotifyTokenResponse(val access_token: String, val refresh_token: String)
+//@Serializable
+//data class SpotifyAlbumPagingObject(
+//    val href: String,
+//    val total: Int,
+//    val items: List<SavedAlbumObject>
+//)
 
 @Serializable
-data class SpotifyTrackEdge(
-    val track: SpotifyTrack,
+data class SpotifySavedAlbumObject(
+    val album: SpotifyAlbum,
     val added_at: String
 )
 
 @Serializable
-data class SpotifyPlaylistsResponse(
-    val href: String,
-    val items: List<SpotifyPlaylist>
+data class SpotifySavedTrackObject(
+    val track: SpotifyTrack,
+    val added_at: String
 )
 
-@Serializable
-data class SpotifyTracksResponse(
-    val href: String,
-    val items: List<SpotifyTrackEdge>
-)
+//@Serializable
+//data class SpotifyPlaylistsPaginationObject(
+//    val href: String,
+//    val items: List<SpotifyPlaylist>
+//)
+//
+//@Serializable
+//data class SpotifyTracksPaginationObject(
+//    val href: String,
+//    val items: List<SpotifySavedTrackObject>
+//)
+//
+//@Serializable
+//data class SpotifyAlbumTracksPaginationObject(
+//    val href: String,
+//    val items: List<SpotifyTrack>
+//)
+
 
 @Serializable
-data class SpotifyPlaylistResponse(
+data class SpotifyPaginationObject<T>(
     val href: String,
-    val items: List<SpotifyPlaylist>
+    val items: List<T>
 )

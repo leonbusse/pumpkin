@@ -14,12 +14,27 @@ class PumpkinApi(
         } else {
             val spotifyLibrary = spotifyApi.getSpotifyLibrary(accessToken)
             val shareId = generateShareId()
-            val likedTracks: List<PumpkinTrack> = spotifyLibrary.tracks.take(100)
-            val shareTracks: List<PumpkinTrack> = spotifyLibrary.playlists
-                .map { it.tracks.take(100) }
-                .plusElement(likedTracks)
-                .flatten()
+            val likedTracks: List<PumpkinTrack> = spotifyLibrary.tracks.take(100) // TODO: take more than 100 liked tracks
+            val albumTracks: List<PumpkinTrack> = spotifyLibrary.albums
                 .shuffled()
+                .take(100)
+                .flatMap { it.tracks.take(100) }
+            println("taking ${albumTracks.size} tracks from albums")
+
+            val playlistTracks: List<PumpkinTrack> = spotifyLibrary.playlists
+                .shuffled()
+                .take(100)
+                .flatMap { it.tracks.take(100) }
+
+            val shareTracks: List<PumpkinTrack> =
+                likedTracks
+                    .plus(albumTracks)
+                    .plus(playlistTracks)
+                    .toSet()
+                    .shuffled()
+                    .take(1000)
+            println("compiled share tracks of size ${shareTracks.size}")
+            println(shareTracks)
 
             cache.setUserIdByShareId(shareId, spotifyLibrary.user.id)
             cache.setTracksByShareId(shareId, shareTracks)

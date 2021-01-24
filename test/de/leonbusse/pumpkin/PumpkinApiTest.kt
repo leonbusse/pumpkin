@@ -11,7 +11,7 @@ class PumpkinApiTest {
     object TestData {
         val accessToken = "dummyAccessToken"
         val artist = SpotifyArtist("789", "Test Artist")
-        val album = SpotifyAlbum("4367", "Test Album", listOf(artist), images = listOf())
+        val album = SpotifyAlbumInfo("4367", "Test Album", listOf(artist), images = listOf())
         val track = PumpkinTrack(
             "456", "Test Track", "https://preview.track.com/listen", "Test Album",
             listOf("Test Artist"), ""
@@ -19,6 +19,7 @@ class PumpkinApiTest {
         val library = SpotifyLibrary(
             SpotifyUser("123", "Mr. Test", "test@test.com", "premium"),
             listOf(track),
+            listOf(),
             listOf()
         )
         val spotifyLibraries = mapOf(accessToken to library)

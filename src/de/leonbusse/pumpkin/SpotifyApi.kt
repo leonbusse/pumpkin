@@ -4,9 +4,11 @@ import io.ktor.client.*
 import io.ktor.client.features.*
 import io.ktor.client.request.*
 import io.ktor.http.*
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.SerializationException
 
 class SpotifyApi(
     private val cache: SpotifyCache,
@@ -15,9 +17,11 @@ class SpotifyApi(
     companion object {
         const val spotifyTracksMaxLimit = 50
         const val spotifyPlaylistsMaxLimit = 20
+        const val spotifyAlbumsMaxLimit = 50
     }
 
     suspend fun getSpotifyLibrary(accessToken: String): SpotifyLibrary {
+        if (Env.dev) println("using token: $accessToken")
         val user = fetchUserByToken(accessToken)
         return fetchLibrary(user, accessToken)
     }
@@ -30,7 +34,8 @@ class SpotifyApi(
             ?: run {
                 val likedTracks = fetchTracks("https://api.spotify.com/v1/me/tracks", accessToken)
                 val playlists = fetchPlaylists(accessToken)
-                SpotifyLibrary(user, likedTracks, playlists)
+                val albums = fetchAlbums(accessToken)
+                SpotifyLibrary(user, likedTracks, playlists, albums)
                     .also { cache.setLibraryByUserId(it) }
             }
     }
@@ -87,53 +92,110 @@ class SpotifyApi(
         val tracks = mutableListOf<SpotifyTrack>()
         var responseSize = spotifyTracksMaxLimit
         var offset = 0
-        while (offset < 150 && responseSize == spotifyTracksMaxLimit) {
-            val tracksResponse: SpotifyTracksResponse =
-                client.spotifyRequest(accessToken) {
-                    method = HttpMethod.Get
-                    url(href)
-                    parameter("limit", 50)
-                    parameter("offset", offset)
-                }
-            tracks.addAll(tracksResponse.items.map { it.track })
-            responseSize = tracksResponse.items.size
-            offset += tracksResponse.items.size
+        while (offset < 100 && responseSize == spotifyTracksMaxLimit) {
+            try {
+                val tracksResponse: SpotifyPaginationObject<SpotifySavedTrackObject> =
+                    client.spotifyRequest(accessToken) {
+                        method = HttpMethod.Get
+                        url(href)
+                        parameter("limit", spotifyTracksMaxLimit)
+                        parameter("offset", offset)
+                    }
+                tracks.addAll(tracksResponse.items.map { it.track })
+                responseSize = tracksResponse.items.size
+                offset += tracksResponse.items.size
+            } catch (e: SerializationException) {
+                e.printStackTrace()
+                offset += spotifyTracksMaxLimit
+            }
         }
         return tracks
-            .map { it.toPumpkinTrack() }
+            .mapNotNull { it.toPumpkinTrack() }
             .filter { it.previewUrl != null }
     }
 
     private suspend fun fetchPlaylists(accessToken: String): List<PumpkinPlaylist> = coroutineScope {
-        val playlists = mutableListOf<SpotifyPlaylist>()
+        val playlists = mutableListOf<Deferred<PumpkinPlaylist>>()
         var responseSize = spotifyPlaylistsMaxLimit
         var offset = 0
-        while (offset < 150 && responseSize == spotifyTracksMaxLimit) {
-            val tracksResponse: SpotifyPlaylistsResponse =
-                client.spotifyRequest(accessToken) {
-                    url {
-                        protocol = URLProtocol.HTTPS
-                        host = "api.spotify.com"
-                        path("v1", "me", "playlists")
+        while (offset < 100 && responseSize == spotifyPlaylistsMaxLimit) {
+            try {
+                val playlistsResponse: SpotifyPaginationObject<SpotifyPlaylist> =
+                    client.spotifyRequest(accessToken) {
+                        url {
+                            protocol = URLProtocol.HTTPS
+                            host = "api.spotify.com"
+                            path("v1", "me", "playlists")
+                        }
+                        method = HttpMethod.Get
+                        parameter("limit", spotifyPlaylistsMaxLimit)
+                        parameter("offset", offset)
                     }
-                    method = HttpMethod.Get
-                    parameter("limit", spotifyPlaylistsMaxLimit)
-                    parameter("offset", offset)
-                }
-            playlists.addAll(tracksResponse.items)
-            responseSize = tracksResponse.items.size
-            offset += tracksResponse.items.size
-        }
 
-        playlists.map {
-            async {
-                PumpkinPlaylist(
-                    it.id,
-                    it.name,
-                    fetchTracks(it.tracks.href, accessToken)
-                )
+                playlistsResponse.items
+                    .map {
+                        async {
+                            PumpkinPlaylist(
+                                it.id,
+                                it.name,
+                                fetchTracks(it.tracks.href, accessToken)
+                            )
+                        }
+                    }
+                    .let { playlists.addAll(it) }
+
+                responseSize = playlistsResponse.items.size
+                offset += playlistsResponse.items.size
+            } catch (e: SerializationException) {
+                e.printStackTrace()
+                offset += spotifyPlaylistsMaxLimit
             }
-        }.awaitAll()
+        }
+        playlists.awaitAll()
+    }
+
+    private suspend fun fetchAlbums(accessToken: String): List<PumpkinAlbum> = coroutineScope {
+        val albums = mutableListOf<PumpkinAlbum>()
+        var responseSize = spotifyAlbumsMaxLimit
+        var offset = 0
+        while (offset < 100 && responseSize == spotifyAlbumsMaxLimit) {
+            try {
+                val albumsResponse: SpotifyPaginationObject<SpotifySavedAlbumObject> =
+                    client.spotifyRequest(accessToken) {
+                        url {
+                            protocol = URLProtocol.HTTPS
+                            host = "api.spotify.com"
+                            path("v1", "me", "albums")
+                        }
+                        method = HttpMethod.Get
+                        parameter("limit", spotifyAlbumsMaxLimit)
+                        parameter("offset", offset)
+                    }
+
+                albumsResponse.items
+                    .map { savedAlbumObject ->
+                        PumpkinAlbum(
+                            savedAlbumObject.album.id,
+                            savedAlbumObject.album.name,
+                            savedAlbumObject.album.tracks.items
+                                .mapNotNull {
+                                    // tracks fetched via album endpoint don't include album, as it is obvious
+                                    // we need to set the album manually
+                                    it.toPumpkinTrack(album = savedAlbumObject.album.toSpotifyAlbumInfo())
+                                }
+                                .filter { it.previewUrl != null }
+                        )
+                    }
+                    .let { albums.addAll(it) }
+
+                responseSize = albumsResponse.items.size
+                offset += albumsResponse.items.size
+            } catch (e: SerializationException) {
+                e.printStackTrace()
+                offset += spotifyAlbumsMaxLimit
+            }
+        }
+        albums
     }
 
     private suspend inline fun <reified T> HttpClient.spotifyRequest(

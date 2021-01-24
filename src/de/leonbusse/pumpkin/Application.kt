@@ -7,6 +7,7 @@ import io.ktor.client.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.features.*
 import io.ktor.client.features.json.*
+import io.ktor.client.features.json.serializer.*
 import io.ktor.client.features.logging.*
 import io.ktor.features.*
 import io.ktor.features.ContentTransformationException
@@ -21,17 +22,25 @@ lateinit var dotenv: Dotenv
 
 fun main(args: Array<String>): Unit = io.ktor.server.netty.EngineMain.main(args)
 
+object Env {
+    var dev: Boolean = false
+    val prod get() = !dev
+}
 
 @Suppress("unused")
 @kotlin.jvm.JvmOverloads
 fun Application.module(testing: Boolean = false) {
+
+    println("init pumpkin...")
 
     dotenv = dotenv {
         ignoreIfMalformed = true
         ignoreIfMissing = true
     }
 
-    println("init pumpkin...")
+    Env.dev = dotenv["ENV"] == "DEV"
+    println("running in ${if (Env.dev) "development" else "production"} mode")
+
 
     val jedis = Jedis("redis", 6379)
     val spotifyCache = SpotifyCache(jedis)
@@ -40,7 +49,11 @@ fun Application.module(testing: Boolean = false) {
     val httpClient: HttpClient by lazy {
         HttpClient(CIO) {
             install(JsonFeature) {
-                serializer = GsonSerializer()
+                serializer = KotlinxSerializer(
+                    kotlinx.serialization.json.Json(DefaultJson) {
+                        ignoreUnknownKeys = true
+                    }
+                )
             }
             install(Logging) {
                 logger = Logger.DEFAULT

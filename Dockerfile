@@ -1,10 +1,7 @@
 FROM openjdk:15
 
 ENV BASE_URL="baseUrlPlaceholder"
-ENV SHARE_BASE_URL="shareBaseUrlPlaceholder"
-ENV SPOTIFY_CLIENT_ID="clientIdPlaceholder"
-ENV SPOTIFY_CLIENT_SECRET="secretPlaceholder"
-ENV SPOTIFY_REDIRECT_URI_PATH="spotify/callback"
+ENV ENV="DEV"
 
 ENV APPLICATION_USER ktor
 RUN adduser $APPLICATION_USER
