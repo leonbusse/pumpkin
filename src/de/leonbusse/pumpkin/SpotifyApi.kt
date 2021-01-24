@@ -66,10 +66,7 @@ class SpotifyApi(
                     path("v1", "users", userId, "playlists")
                 }
                 header(HttpHeaders.ContentType, ContentType.Application.Json)
-                body = mapOf(
-                    "name" to playlistName,
-                    "public" to false
-                )
+                body = CreatePlaylistBody(playlistName, false)
             }
         val addTracksResponse: String =
             client.spotifyRequest(accessToken) {
@@ -80,10 +77,7 @@ class SpotifyApi(
                     path("v1", "playlists", playlist.id, "tracks")
                 }
                 header(HttpHeaders.ContentType, ContentType.Application.Json)
-                body = mapOf(
-                    "uris" to trackIds.map { "spotify:track:$it" },
-                    "position" to 0
-                )
+                body = AddTracksToPlaylistBody(trackIds.map { "spotify:track:$it" }, 0)
             }
         return playlist
     }

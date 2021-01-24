@@ -152,27 +152,11 @@ data class SpotifyLibrary(
 
 /** Spotify intermediate models **/
 
-//@Serializable
-//data class SpotifyPagingObject<T>(
-//    val href: String,
-//    val items: List<T>,
-//    val limit: Int,
-//    val offset: Int,
-//    val total: Int
-//)
-
 @Serializable
 data class SpotifyPlaylistTrackPagingObject(
     val href: String,
     val total: Int,
 )
-
-//@Serializable
-//data class SpotifyAlbumPagingObject(
-//    val href: String,
-//    val total: Int,
-//    val items: List<SavedAlbumObject>
-//)
 
 @Serializable
 data class SpotifySavedAlbumObject(
@@ -186,27 +170,16 @@ data class SpotifySavedTrackObject(
     val added_at: String
 )
 
-//@Serializable
-//data class SpotifyPlaylistsPaginationObject(
-//    val href: String,
-//    val items: List<SpotifyPlaylist>
-//)
-//
-//@Serializable
-//data class SpotifyTracksPaginationObject(
-//    val href: String,
-//    val items: List<SpotifySavedTrackObject>
-//)
-//
-//@Serializable
-//data class SpotifyAlbumTracksPaginationObject(
-//    val href: String,
-//    val items: List<SpotifyTrack>
-//)
-
-
 @Serializable
 data class SpotifyPaginationObject<T>(
     val href: String,
     val items: List<T>
 )
+
+/** Spotify request models */
+
+@Serializable
+data class CreatePlaylistBody(val name: String, val public: Boolean)
+
+@Serializable
+data class AddTracksToPlaylistBody(val uris: List<String>, val position: Int)
