@@ -14,10 +14,10 @@ const val ONE_HOUR = 60 * ONE_MINUTE
 const val ONE_DAY = 24 * ONE_HOUR
 const val ONE_WEEK = 7 * ONE_DAY
 
-const val USER_TTL = ONE_HOUR
-const val LIBRARY_TTL = ONE_WEEK
-const val ACCESS_TOKEN_TTL = 20 * ONE_MINUTE
 const val SHARE_TRACKS_TTL = ONE_WEEK
+const val USER_TTL = SHARE_TRACKS_TTL
+const val LIBRARY_TTL = SHARE_TRACKS_TTL
+const val ACCESS_TOKEN_TTL = 20 * ONE_MINUTE
 
 val jedisMutex = Mutex()
 
