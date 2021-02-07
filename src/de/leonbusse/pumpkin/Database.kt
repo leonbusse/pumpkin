@@ -104,10 +104,6 @@ class SpotifyCache(private val jedis: Jedis) {
 }
 
 fun <T> T?.logCacheAccess(name: String): T? = this.also {
-    if (this == null) println("Cache MISS - $name: $this")
-    else println("Cache HIT: $name")
+    if (this == null) println("Cache MISS - $name")
+    else println("Cache HIT: $name: $this")
 }
-//fun <T> T?.logCacheAccess(name: String): T? = this.also {
-//    println("Cache disabled - $name: $this")
-//    return null
-//}
