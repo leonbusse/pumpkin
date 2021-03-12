@@ -46,10 +46,13 @@ Then on VPS:
 docker-compose up -d
 ```
 
-Or to update and restart single service without affecting others:
+Deploy current version of service `api`, purging `redis`
 ```
 docker login &&
 docker-compose pull api &&
+docker-compose down &&
+docker-compose rm -f &&
+docker-compose up -d redis &&
 docker-compose up --force-recreate --no-deps -d api
 ```
 

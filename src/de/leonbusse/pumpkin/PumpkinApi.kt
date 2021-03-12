@@ -34,7 +34,6 @@ class PumpkinApi(
                     .shuffled()
                     .take(1000)
             println("compiled share tracks of size ${shareTracks.size}")
-            println(shareTracks)
 
             cache.setUserIdByShareId(shareId, spotifyLibrary.user.id)
             cache.setTracksByShareId(shareId, shareTracks)

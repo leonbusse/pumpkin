@@ -105,5 +105,5 @@ class SpotifyCache(private val jedis: Jedis) {
 
 fun <T> T?.logCacheAccess(name: String): T? = this.also {
     if (this == null) println("Cache MISS - $name")
-    else println("Cache HIT: $name: $this")
+    else this.toString().let { println("Cache HIT: $name: ${it.take(200)}${if (it.length > 120) "..." else ""}") }
 }

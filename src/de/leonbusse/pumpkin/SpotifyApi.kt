@@ -4,10 +4,8 @@ import io.ktor.client.*
 import io.ktor.client.features.*
 import io.ktor.client.request.*
 import io.ktor.http.*
-import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import io.ktor.http.HttpHeaders.RetryAfter
+import kotlinx.coroutines.*
 import kotlinx.serialization.SerializationException
 
 class SpotifyApi(
@@ -34,7 +32,11 @@ class SpotifyApi(
             ?: run {
                 val likedTracks = fetchTracks("https://api.spotify.com/v1/me/tracks", accessToken)
                 val playlists = fetchPlaylists(accessToken)
+//                    .also { println("playlists") }
+//                    .alsoForEach { println("  - ${it.name}") }
                 val albums = fetchAlbums(accessToken)
+//                    .also { println("albums") }
+//                    .alsoForEach { println("  - ${it.name}") }
                 SpotifyLibrary(user, likedTracks, playlists, albums)
                     .also { cache.setLibraryByUserId(it) }
             }
@@ -42,13 +44,15 @@ class SpotifyApi(
 
     private suspend fun fetchUserByToken(accessToken: String): SpotifyUser =
         cache.getSpotifyUserByToken(accessToken)
-            ?: client.spotifyRequest<SpotifyUser>(accessToken) {
-                url {
-                    protocol = URLProtocol.HTTPS
-                    host = "api.spotify.com"
-                    path("v1", "me")
+            ?: withRateLimitHandler {
+                client.spotifyRequest<SpotifyUser>(accessToken) {
+                    url {
+                        protocol = URLProtocol.HTTPS
+                        host = "api.spotify.com"
+                        path("v1", "me")
+                    }
+                    method = HttpMethod.Get
                 }
-                method = HttpMethod.Get
             }.also { cache.setSpotifyUserByToken(accessToken, it) }
 
     suspend fun createPlaylist(
@@ -58,26 +62,30 @@ class SpotifyApi(
         accessToken: String
     ): SpotifyPlaylist {
         val playlist: SpotifyPlaylist =
-            client.spotifyRequest(accessToken) {
-                method = HttpMethod.Post
-                url {
-                    protocol = URLProtocol.HTTPS
-                    host = "api.spotify.com"
-                    path("v1", "users", userId, "playlists")
+            withRateLimitHandler {
+                client.spotifyRequest(accessToken) {
+                    method = HttpMethod.Post
+                    url {
+                        protocol = URLProtocol.HTTPS
+                        host = "api.spotify.com"
+                        path("v1", "users", userId, "playlists")
+                    }
+                    header(HttpHeaders.ContentType, ContentType.Application.Json)
+                    body = CreatePlaylistBody(playlistName, false)
                 }
-                header(HttpHeaders.ContentType, ContentType.Application.Json)
-                body = CreatePlaylistBody(playlistName, false)
             }
         val addTracksResponse: String =
-            client.spotifyRequest(accessToken) {
-                method = HttpMethod.Post
-                url {
-                    protocol = URLProtocol.HTTPS
-                    host = "api.spotify.com"
-                    path("v1", "playlists", playlist.id, "tracks")
+            withRateLimitHandler {
+                client.spotifyRequest(accessToken) {
+                    method = HttpMethod.Post
+                    url {
+                        protocol = URLProtocol.HTTPS
+                        host = "api.spotify.com"
+                        path("v1", "playlists", playlist.id, "tracks")
+                    }
+                    header(HttpHeaders.ContentType, ContentType.Application.Json)
+                    body = AddTracksToPlaylistBody(trackIds.map { "spotify:track:$it" }, 0)
                 }
-                header(HttpHeaders.ContentType, ContentType.Application.Json)
-                body = AddTracksToPlaylistBody(trackIds.map { "spotify:track:$it" }, 0)
             }
         return playlist
     }
@@ -89,11 +97,13 @@ class SpotifyApi(
         while (offset < 100 && responseSize == spotifyTracksMaxLimit) {
             try {
                 val tracksResponse: SpotifyPaginationObject<SpotifySavedTrackObject> =
-                    client.spotifyRequest(accessToken) {
-                        method = HttpMethod.Get
-                        url(href)
-                        parameter("limit", spotifyTracksMaxLimit)
-                        parameter("offset", offset)
+                    withRateLimitHandler {
+                        client.spotifyRequest(accessToken) {
+                            method = HttpMethod.Get
+                            url(href)
+                            parameter("limit", spotifyTracksMaxLimit)
+                            parameter("offset", offset)
+                        }
                     }
                 tracks.addAll(tracksResponse.items.map { it.track })
                 responseSize = tracksResponse.items.size
@@ -115,15 +125,17 @@ class SpotifyApi(
         while (offset < 100 && responseSize == spotifyPlaylistsMaxLimit) {
             try {
                 val playlistsResponse: SpotifyPaginationObject<SpotifyPlaylist> =
-                    client.spotifyRequest(accessToken) {
-                        url {
-                            protocol = URLProtocol.HTTPS
-                            host = "api.spotify.com"
-                            path("v1", "me", "playlists")
+                    withRateLimitHandler {
+                        client.spotifyRequest(accessToken) {
+                            url {
+                                protocol = URLProtocol.HTTPS
+                                host = "api.spotify.com"
+                                path("v1", "me", "playlists")
+                            }
+                            method = HttpMethod.Get
+                            parameter("limit", spotifyPlaylistsMaxLimit)
+                            parameter("offset", offset)
                         }
-                        method = HttpMethod.Get
-                        parameter("limit", spotifyPlaylistsMaxLimit)
-                        parameter("offset", offset)
                     }
 
                 playlistsResponse.items
@@ -155,15 +167,17 @@ class SpotifyApi(
         while (offset < 100 && responseSize == spotifyAlbumsMaxLimit) {
             try {
                 val albumsResponse: SpotifyPaginationObject<SpotifySavedAlbumObject> =
-                    client.spotifyRequest(accessToken) {
-                        url {
-                            protocol = URLProtocol.HTTPS
-                            host = "api.spotify.com"
-                            path("v1", "me", "albums")
+                    withRateLimitHandler {
+                        client.spotifyRequest(accessToken) {
+                            url {
+                                protocol = URLProtocol.HTTPS
+                                host = "api.spotify.com"
+                                path("v1", "me", "albums")
+                            }
+                            method = HttpMethod.Get
+                            parameter("limit", spotifyAlbumsMaxLimit)
+                            parameter("offset", offset)
                         }
-                        method = HttpMethod.Get
-                        parameter("limit", spotifyAlbumsMaxLimit)
-                        parameter("offset", offset)
                     }
 
                 albumsResponse.items
@@ -192,6 +206,17 @@ class SpotifyApi(
         albums
     }
 
+    private suspend fun <T> withRateLimitHandler(block: suspend () -> T): T {
+        println("DEBUG: withRateLimitHandler, block: $block")
+        return try {
+            block()
+        } catch (e: RateLimitedException) {
+            println("DEBUG: waiting ${e.retryAfter} seconds")
+            delay(e.retryAfter * 1000L)
+            withRateLimitHandler(block)
+        }
+    }
+
     private suspend inline fun <reified T> HttpClient.spotifyRequest(
         accessToken: String,
         block: HttpRequestBuilder.() -> Unit
@@ -204,10 +229,25 @@ class SpotifyApi(
                 }
             }
         } catch (e: ClientRequestException) {
-            if (e.response.status == HttpStatusCode.Unauthorized) {
-                throw AuthenticationException(e)
-            } else {
-                throw e
+            when (e.response.status) {
+                HttpStatusCode.Unauthorized -> {
+                    throw AuthenticationException(e)
+                }
+                HttpStatusCode.TooManyRequests -> {
+                    try {
+                        val retryAfter = e.response.headers[RetryAfter]?.toIntOrNull() ?: throw ParseRetryAfterException()
+                        println("DEBUG: rate limited, retryAfter: $retryAfter")
+                        throw RateLimitedException(retryAfter, e)
+                    } catch (parseException: ParseRetryAfterException) {
+                        println("DEBUG: rate limited, parsing Retry-After header failed")
+                        parseException.printStackTrace()
+                        throw e
+                    }
+                }
+                else -> {
+                    println("DEBUG: uncaught exception with status: ${e.response.status}")
+                    throw e
+                }
             }
         }
 }

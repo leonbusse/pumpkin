@@ -8,7 +8,7 @@ import io.ktor.util.pipeline.*
 import java.util.*
 
 
-fun <T> Iterable<T>.alsoForEach(block: (T) -> Unit): Iterable<T> {
+fun <T> List<T>.alsoForEach(block: (T) -> Unit): List<T> {
     this.forEach(block)
     return this
 }
