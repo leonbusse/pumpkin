@@ -207,11 +207,10 @@ class SpotifyApi(
     }
 
     private suspend fun <T> withRateLimitHandler(block: suspend () -> T): T {
-        println("DEBUG: withRateLimitHandler, block: $block")
         return try {
             block()
         } catch (e: RateLimitedException) {
-            println("DEBUG: waiting ${e.retryAfter} seconds")
+            println("INFO: waiting ${e.retryAfter} seconds")
             delay(e.retryAfter * 1000L)
             withRateLimitHandler(block)
         }
@@ -235,17 +234,17 @@ class SpotifyApi(
                 }
                 HttpStatusCode.TooManyRequests -> {
                     try {
-                        val retryAfter = e.response.headers[RetryAfter]?.toIntOrNull() ?: throw ParseRetryAfterException()
-                        println("DEBUG: rate limited, retryAfter: $retryAfter")
+                        val retryAfter = e.response.headers[RetryAfter]?.toIntOrNull() ?: throw RetryAfterParseException()
+                        println("WARNING: rate limited, retryAfter: $retryAfter")
                         throw RateLimitedException(retryAfter, e)
-                    } catch (parseException: ParseRetryAfterException) {
-                        println("DEBUG: rate limited, parsing Retry-After header failed")
+                    } catch (parseException: RetryAfterParseException) {
+                        println("WARNING: rate limited, parsing Retry-After header failed")
                         parseException.printStackTrace()
                         throw e
                     }
                 }
                 else -> {
-                    println("DEBUG: uncaught exception with status: ${e.response.status}")
+                    println("WARNING: uncaught exception with status: ${e.response.status}")
                     throw e
                 }
             }
